@@ -1,4 +1,6 @@
 const User = require('../models/User');
+const Campaign = require('../models/Campaign');
+const Application = require('../models/Application');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
@@ -150,25 +152,27 @@ exports.deleteUser = async (req, res, next) => {
   }
 };
 
-// @desc    Get platform stats
+// @desc    Get platform stats (users + campaigns)
 // @route   GET /api/v1/admin/stats
 exports.getStats = async (req, res, next) => {
   try {
-    const [totalUsers, totalBrands, totalInfluencers, blockedUsers, unverifiedUsers] =
-      await Promise.all([
-        User.countDocuments({ role: { $ne: 'admin' } }),
-        User.countDocuments({ role: 'brand' }),
-        User.countDocuments({ role: 'influencer' }),
-        User.countDocuments({ isBlocked: true }),
-        User.countDocuments({ isVerified: false, role: { $ne: 'admin' } }),
-      ]);
-
-    // Signups in last 7 days
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const recentSignups = await User.countDocuments({
-      createdAt: { $gte: sevenDaysAgo },
-      role: { $ne: 'admin' },
-    });
+
+    const [
+      totalUsers, totalBrands, totalInfluencers, blockedUsers, unverifiedUsers, recentSignups,
+      totalCampaigns, activeCampaigns, completedCampaigns, totalApplications,
+    ] = await Promise.all([
+      User.countDocuments({ role: { $ne: 'admin' } }),
+      User.countDocuments({ role: 'brand' }),
+      User.countDocuments({ role: 'influencer' }),
+      User.countDocuments({ isBlocked: true }),
+      User.countDocuments({ isVerified: false, role: { $ne: 'admin' } }),
+      User.countDocuments({ createdAt: { $gte: sevenDaysAgo }, role: { $ne: 'admin' } }),
+      Campaign.countDocuments(),
+      Campaign.countDocuments({ status: 'active' }),
+      Campaign.countDocuments({ status: 'completed' }),
+      Application.countDocuments(),
+    ]);
 
     return success(res, {
       totalUsers,
@@ -177,6 +181,10 @@ exports.getStats = async (req, res, next) => {
       blockedUsers,
       unverifiedUsers,
       recentSignups,
+      totalCampaigns,
+      activeCampaigns,
+      completedCampaigns,
+      totalApplications,
     });
   } catch (error) {
     next(error);
@@ -209,3 +217,156 @@ exports.createAdmin = async (req, res, next) => {
     next(error);
   }
 };
+
+// ─── Campaign Management ──────────────────────────────
+
+// @desc    List all campaigns with filters
+// @route   GET /api/v1/admin/campaigns
+exports.getAllCampaigns = async (req, res, next) => {
+  try {
+    const {
+      status, niche, platform, search, flagged,
+      page = 1, limit = 20, sortBy = 'createdAt', order = 'desc',
+    } = req.query;
+
+    const filter = {};
+    if (status) filter.status = status;
+    if (niche) filter.niche = niche;
+    if (platform) filter.platform = platform;
+    if (flagged === 'true') filter.isFlagged = true;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortOrder = order === 'asc' ? 1 : -1;
+
+    const [campaigns, total] = await Promise.all([
+      Campaign.find(filter)
+        .populate('brand', 'name email')
+        .sort({ [sortBy]: sortOrder })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      Campaign.countDocuments(filter),
+    ]);
+
+    return success(res, {
+      campaigns,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get campaign detail (admin)
+// @route   GET /api/v1/admin/campaigns/:id
+exports.getCampaignById = async (req, res, next) => {
+  try {
+    const campaign = await Campaign.findById(req.params.id)
+      .populate('brand', 'name email avatar');
+    if (!campaign) return next(new AppError('Campaign not found', 404));
+
+    const applicationsCount = await Application.countDocuments({ campaign: req.params.id });
+
+    return success(res, { campaign, applicationsCount });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Moderate campaign (approve/reject/flag/remove)
+// @route   PUT /api/v1/admin/campaigns/:id/moderate
+exports.moderateCampaign = async (req, res, next) => {
+  try {
+    const { action, reason } = req.body;
+
+    const validActions = ['approve', 'reject', 'flag', 'unflag', 'remove'];
+    if (!validActions.includes(action)) {
+      return next(new AppError(`Action must be one of: ${validActions.join(', ')}`, 400));
+    }
+
+    const campaign = await Campaign.findById(req.params.id);
+    if (!campaign) return next(new AppError('Campaign not found', 404));
+
+    switch (action) {
+      case 'approve':
+        campaign.status = 'active';
+        campaign.moderationNote = reason || undefined;
+        break;
+      case 'reject':
+        campaign.status = 'cancelled';
+        campaign.moderationNote = reason || 'Rejected by admin';
+        break;
+      case 'flag':
+        campaign.isFlagged = true;
+        campaign.moderationNote = reason || 'Flagged for review';
+        break;
+      case 'unflag':
+        campaign.isFlagged = false;
+        campaign.moderationNote = undefined;
+        break;
+      case 'remove':
+        await campaign.deleteOne();
+        return success(res, null, 'Campaign removed permanently');
+    }
+
+    await campaign.save();
+    return success(res, { campaign }, `Campaign ${action}${action.endsWith('e') ? 'd' : 'ed'}`);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Campaign analytics
+// @route   GET /api/v1/admin/campaigns/stats
+exports.getCampaignStats = async (req, res, next) => {
+  try {
+    const statusCounts = await Campaign.aggregate([
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ]);
+
+    const nicheCounts = await Campaign.aggregate([
+      { $unwind: '$niche' },
+      { $group: { _id: '$niche', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+      { $limit: 10 },
+    ]);
+
+    const platformCounts = await Campaign.aggregate([
+      { $unwind: '$platform' },
+      { $group: { _id: '$platform', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+
+    const budgetStats = await Campaign.aggregate([
+      { $group: {
+        _id: null,
+        avgMin: { $avg: '$budget.min' },
+        avgMax: { $avg: '$budget.max' },
+        totalBudget: { $sum: '$budget.max' },
+      } },
+    ]);
+
+    const flaggedCount = await Campaign.countDocuments({ isFlagged: true });
+
+    return success(res, {
+      statusCounts: statusCounts.reduce((acc, s) => { acc[s._id] = s.count; return acc; }, {}),
+      topNiches: nicheCounts,
+      platformDistribution: platformCounts,
+      budgetStats: budgetStats[0] || {},
+      flaggedCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+

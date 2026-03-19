@@ -27,7 +27,8 @@ exports.upsertProfile = async (req, res, next) => {
 
     await profile.save();
 
-    if (profile.completionPercentage >= 60 && !req.user.isProfileComplete) {
+    // Mark profile complete on user immediately when they save any profile info
+    if (!req.user.isProfileComplete) {
       await User.findByIdAndUpdate(req.user._id, { isProfileComplete: true });
     }
 

@@ -23,4 +23,10 @@ router.delete('/users/:id', adminController.deleteUser);
 // Create new admin
 router.post('/create-admin', validate(createAdminRules), adminController.createAdmin);
 
+// Campaign management
+router.get('/campaigns/stats', adminController.getCampaignStats);
+router.get('/campaigns', adminController.getAllCampaigns);
+router.get('/campaigns/:id', adminController.getCampaignById);
+router.put('/campaigns/:id/moderate', adminController.moderateCampaign);
+
 module.exports = router;
