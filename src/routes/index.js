@@ -7,6 +7,7 @@ router.get('/health', (req, res) => {
 });
 
 // Route modules
+router.use('/dashboard', require('./dashboard'));
 router.use('/auth', require('./auth'));
 router.use('/admin', require('./admin'));
 router.use('/influencer', require('./influencer'));
@@ -16,7 +17,17 @@ router.use('/campaigns', require('./campaigns'));
 router.use('/applications', require('./applications'));
 router.use('/invitations', require('./invitations'));
 router.use('/deliverables', require('./deliverables'));
-// router.use('/messages', require('./messages'));
-// router.use('/payments', require('./payments'));
+router.use('/discovery', require('./discovery'));
+router.use('/messages', require('./messages'));
+router.use('/contracts', require('./contracts'));
+router.use('/notifications', require('./notifications'));
+router.use('/payments', require('./payments'));
+router.use('/subscriptions', require('./subscriptions'));
+router.use('/affiliates', require('./affiliates'));
+router.use('/featured', require('./featured'));
+router.use('/analytics', require('./analytics'));
+router.use('/ads', require('./ads'));
+router.use('/ai', require('./ai'));
+router.use('/support', require('./support'));
 
 module.exports = router;
