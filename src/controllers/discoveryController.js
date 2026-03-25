@@ -125,11 +125,16 @@ exports.discoverInfluencers = async (req, res, next) => {
 // @route   GET /api/v1/discovery/influencers/:profileId
 exports.getInfluencerDetail = async (req, res, next) => {
   try {
-    const profile = await InfluencerProfile.findById(req.params.profileId)
-      .populate('user', 'name email avatar');
+    const { AppError } = require('../middleware/errorHandler');
+    const id = req.params.profileId;
+
+    // Try by profile _id first, fallback to user _id
+    let profile = await InfluencerProfile.findById(id).populate('user', 'name email avatar').catch(() => null);
+    if (!profile) {
+      profile = await InfluencerProfile.findOne({ user: id }).populate('user', 'name email avatar');
+    }
 
     if (!profile) {
-      const { AppError } = require('../middleware/errorHandler');
       return next(new AppError('Influencer not found', 404));
     }
 

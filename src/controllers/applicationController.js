@@ -1,5 +1,6 @@
 const Application = require('../models/Application');
 const Campaign = require('../models/Campaign');
+const InfluencerProfile = require('../models/InfluencerProfile');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
 
@@ -81,8 +82,22 @@ exports.getCampaignApplications = async (req, res, next) => {
       Application.countDocuments(filter),
     ]);
 
+    // Attach influencerProfile._id for each application so frontend can navigate to detail
+    const influencerIds = applications.map(a => a.influencer?._id).filter(Boolean);
+    const profiles = await InfluencerProfile.find(
+      { user: { $in: influencerIds } },
+      '_id user'
+    ).lean();
+    const profileMap = {};
+    profiles.forEach(p => { profileMap[p.user.toString()] = p._id; });
+
+    const enriched = applications.map(app => ({
+      ...app.toObject(),
+      influencerProfileId: profileMap[app.influencer?._id?.toString()] || null,
+    }));
+
     return success(res, {
-      applications,
+      applications: enriched,
       pagination: { page: Number(page), limit: Number(limit), total, pages: Math.ceil(total / Number(limit)) },
     });
   } catch (error) {

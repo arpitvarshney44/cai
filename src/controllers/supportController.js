@@ -157,6 +157,40 @@ exports.getAllTickets = async (req, res, next) => {
   }
 };
 
+// @desc    Update ticket status (admin)
+// @route   PUT /api/v1/admin/support/tickets/:id/status
+exports.updateTicketStatus = async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    const validStatuses = ['open', 'in_progress', 'waiting_on_user', 'waiting_on_admin', 'resolved', 'closed'];
+    if (!validStatuses.includes(status)) {
+      return next(new AppError('Invalid status value', 400));
+    }
+
+    const ticket = await SupportTicket.findById(req.params.id);
+    if (!ticket) return next(new AppError('Ticket not found', 404));
+
+    ticket.status = status;
+    if (status === 'resolved') ticket.resolvedAt = new Date(), ticket.resolvedBy = req.user._id;
+    if (status === 'closed') ticket.closedAt = new Date();
+    await ticket.save();
+
+    await AuditLog.create({
+      admin: req.user._id,
+      action: 'ticket_status_updated',
+      targetType: 'ticket',
+      targetId: ticket._id,
+      description: `Ticket ${ticket.ticketNumber} status changed to ${status}`,
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    return success(res, { ticket }, 'Ticket status updated');
+  } catch (err) {
+    next(err);
+  }
+};
+
 // @desc    Assign ticket to admin
 // @route   PUT /api/v1/admin/support/tickets/:id/assign
 exports.assignTicket = async (req, res, next) => {

@@ -9,6 +9,7 @@ router.get('/health', (req, res) => {
 // Route modules
 router.use('/dashboard', require('./dashboard'));
 router.use('/auth', require('./auth'));
+router.use('/users', require('./user'));
 router.use('/admin', require('./admin'));
 router.use('/influencer', require('./influencer'));
 router.use('/brand', require('./brand'));

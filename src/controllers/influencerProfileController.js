@@ -10,6 +10,7 @@ exports.upsertProfile = async (req, res, next) => {
     const {
       bio, niche, location, languages, gender,
       dateOfBirth, pricePerPost, pricePerStory, pricePerVideo,
+      portfolio,
     } = req.body;
 
     let profile = await InfluencerProfile.findOne({ user: req.user._id });
@@ -27,6 +28,8 @@ exports.upsertProfile = async (req, res, next) => {
     if (pricePerPost !== undefined) profile.pricePerPost = pricePerPost;
     if (pricePerStory !== undefined) profile.pricePerStory = pricePerStory;
     if (pricePerVideo !== undefined) profile.pricePerVideo = pricePerVideo;
+    // Replace entire portfolio if provided
+    if (portfolio !== undefined) profile.portfolio = portfolio;
 
     await profile.save();
     

@@ -9,7 +9,7 @@ const { success } = require('../utils/apiResponse');
 // @access  Brand only
 exports.sendInvitation = async (req, res, next) => {
   try {
-    const { campaignId, influencerId, message } = req.body;
+    const { campaignId, influencerId, influencerProfileId, message } = req.body;
 
     // Validate campaign ownership
     const campaign = await Campaign.findById(campaignId);
@@ -21,14 +21,25 @@ exports.sendInvitation = async (req, res, next) => {
       return next(new AppError('Campaign must be active to send invitations', 400));
     }
 
+    // Resolve influencer user ID — accept either userId or profileId
+    let resolvedInfluencerId = influencerId;
+    if (!resolvedInfluencerId && influencerProfileId) {
+      const InfluencerProfile = require('../models/InfluencerProfile');
+      const profile = await InfluencerProfile.findById(influencerProfileId).select('user').lean();
+      if (!profile) return next(new AppError('Influencer not found', 404));
+      resolvedInfluencerId = profile.user.toString();
+    }
+
+    if (!resolvedInfluencerId) return next(new AppError('influencerId or influencerProfileId is required', 400));
+
     // Validate influencer exists
-    const influencer = await User.findById(influencerId);
+    const influencer = await User.findById(resolvedInfluencerId);
     if (!influencer || influencer.role !== 'influencer') {
       return next(new AppError('Influencer not found', 404));
     }
 
     // Check duplicate
-    const existing = await Invitation.findOne({ campaign: campaignId, influencer: influencerId });
+    const existing = await Invitation.findOne({ campaign: campaignId, influencer: resolvedInfluencerId });
     if (existing) {
       return next(new AppError('Invitation already sent to this influencer for this campaign', 400));
     }
@@ -36,9 +47,9 @@ exports.sendInvitation = async (req, res, next) => {
     const invitation = await Invitation.create({
       campaign: campaignId,
       brand: req.user._id,
-      influencer: influencerId,
+      influencer: resolvedInfluencerId,
       message: message || '',
-      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // 14 days
+      expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
     });
 
     return success(res, { invitation }, 'Invitation sent successfully', 201);

@@ -22,9 +22,13 @@ const platformSettingsSchema = new mongoose.Schema(
         pro: { monthly: { type: Number, default: 999 }, yearly: { type: Number, default: 9990 } },
       },
     },
+    // AI Feature Configs (arbitrary JSON per feature key)
+    aiFeatureConfigs: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
     // Feature flags
-    featureFlags: {
-      aiMatching: { type: Boolean, default: true },
+    featureFlags: {      aiMatching: { type: Boolean, default: true },
       aiScoring: { type: Boolean, default: true },
       aiChatAssistant: { type: Boolean, default: true },
       aiContentAnalysis: { type: Boolean, default: true },

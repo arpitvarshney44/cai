@@ -24,7 +24,7 @@ const {
 router.use(protect);
 
 // ─── Matching (Task 50) ───
-router.post('/matching/score', authorize('brand'), getMatchScore);
+router.post('/matching/score', authorize('brand', 'influencer'), getMatchScore);
 router.post('/matching/top', authorize('brand'), getTopMatches);
 
 // ─── Scoring (Task 51) ───
@@ -40,7 +40,7 @@ router.post('/content/analyze', analyzeContent);
 router.post('/content/analyze-batch', analyzeContentBatch);
 
 // ─── Pricing (Task 54) ───
-router.post('/pricing/recommend', authorize('influencer'), getPricingRecommendation);
+router.post('/pricing/recommend', authorize('influencer', 'brand'), getPricingRecommendation);
 router.post('/pricing/budget', authorize('brand'), getBudgetSuggestion);
 
 // ─── Brief Generator (Task 55) ───

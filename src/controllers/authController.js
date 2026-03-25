@@ -4,6 +4,7 @@ const config = require('../config');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const generateOTP = require('../utils/generateOTP');
 const sendEmail = require('../utils/sendEmail');
+const emailTemplates = require('../utils/emailTemplates');
 const { success } = require('../utils/apiResponse');
 const { AppError } = require('../middleware/errorHandler');
 
@@ -30,12 +31,7 @@ exports.register = async (req, res, next) => {
       await sendEmail({
         to: user.email,
         subject: 'Connect.AI - Verify Your Email',
-        html: `
-          <h2>Welcome to Connect.AI!</h2>
-          <p>Your verification code is:</p>
-          <h1 style="color: #6C63FF; letter-spacing: 5px;">${otp.code}</h1>
-          <p>This code expires in 10 minutes.</p>
-        `,
+        html: emailTemplates.verificationOTP(user.name, otp.code),
       });
     } catch (emailErr) {
       console.error('Email send failed:', emailErr.message);
@@ -160,11 +156,7 @@ exports.resendOTP = async (req, res, next) => {
       await sendEmail({
         to: user.email,
         subject: 'Connect.AI - New Verification Code',
-        html: `
-          <h2>New Verification Code</h2>
-          <h1 style="color: #6C63FF; letter-spacing: 5px;">${otp.code}</h1>
-          <p>This code expires in 10 minutes.</p>
-        `,
+        html: emailTemplates.resendOTP(user.name, otp.code),
       });
     } catch (emailErr) {
       console.error('Email send failed:', emailErr.message);
@@ -195,13 +187,7 @@ exports.forgotPassword = async (req, res, next) => {
       await sendEmail({
         to: user.email,
         subject: 'Connect.AI - Password Reset Code',
-        html: `
-          <h2>Password Reset</h2>
-          <p>Your password reset code is:</p>
-          <h1 style="color: #6C63FF; letter-spacing: 5px;">${otp.code}</h1>
-          <p>This code expires in 10 minutes.</p>
-          <p>If you didn't request this, please ignore this email.</p>
-        `,
+        html: emailTemplates.passwordReset(user.name, otp.code),
       });
     } catch (emailErr) {
       console.error('Email send failed:', emailErr.message);

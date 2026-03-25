@@ -49,6 +49,10 @@ router.get('/payments/commissions', adminPaymentController.getCommissionReport);
 
 // AI Management
 router.get('/ai/stats', aiController.getAdminAIStats);
+router.get('/ai/features', aiController.getAIFeatures);
+router.put('/ai/features/:id/toggle', aiController.toggleAIFeature);
+router.put('/ai/features/:id/config', aiController.updateAIFeatureConfig);
+router.post('/ai/recalculate-scores', aiController.recalculateGlobalScores);
 
 // Moderation (Task 60)
 router.get('/moderation/stats', moderationController.getModerationStats);
@@ -74,6 +78,7 @@ router.get('/support/tickets', supportController.getAllTickets);
 router.get('/support/tickets/:id', supportController.getTicketById);
 router.post('/support/tickets/:id/respond', supportController.respondToTicket);
 router.put('/support/tickets/:id/assign', supportController.assignTicket);
+router.put('/support/tickets/:id/status', supportController.updateTicketStatus);
 router.put('/support/tickets/:id/resolve', supportController.resolveTicket);
 router.put('/support/tickets/:id/close', supportController.closeTicket);
 

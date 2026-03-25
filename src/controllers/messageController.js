@@ -165,27 +165,44 @@ exports.sendMessage = async (req, res, next) => {
     const populatedMessage = await Message.findById(message._id)
       .populate('sender', 'name email avatar role');
 
-    // Emit via Socket.io if available
+    // Emit updates
     const io = req.app.get('io');
+    const notificationUtil = require('../utils/notificationUtil');
+
     if (io) {
-      // Emit to all participants in the conversation room
       io.to(`conversation:${conversationId}`).emit('newMessage', {
         message: populatedMessage,
         conversationId,
       });
+    }
 
-      // Emit conversation update to all participants' personal rooms
-      conversation.participants.forEach((participantId) => {
-        const pid = participantId.toString();
-        if (pid !== userId) {
+    conversation.participants.forEach((participantId) => {
+      const pid = participantId.toString();
+      if (pid !== userId) {
+        if (io) {
           io.to(`user:${pid}`).emit('conversationUpdated', {
             conversationId,
             lastMessage: conversation.lastMessage,
             unreadCount: conversation.unreadCounts.get(pid) || 0,
           });
         }
-      });
-    }
+        
+        notificationUtil.createNotification(pid, {
+          type: 'message',
+          title: `New message from ${populatedMessage.sender.name}`,
+          body: text || 'Sent an attachment',
+          data: {
+            screen: 'Chat',
+            referenceId: conversationId,
+            referenceType: 'conversation',
+            extra: { 
+              senderName: populatedMessage.sender.name,
+              senderId: userId
+            }
+          }
+        });
+      }
+    });
 
     return success(res, { message: populatedMessage }, 'Message sent', 201);
   } catch (error) {

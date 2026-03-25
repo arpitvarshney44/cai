@@ -39,11 +39,22 @@ async function callAI(path, method = 'GET', body = null) {
 // @route   POST /api/v1/ai/matching/score
 exports.getMatchScore = async (req, res, next) => {
   try {
-    const { campaignId, influencerProfileId } = req.body;
-    if (!campaignId || !influencerProfileId) {
-      return next(new AppError('campaignId and influencerProfileId are required', 400));
+    const { campaignId, influencerProfileId, forSelf } = req.body;
+    if (!campaignId) {
+      return next(new AppError('campaignId is required', 400));
     }
-    const result = await callAI('/api/ai/matching/score', 'POST', { campaignId, influencerProfileId });
+
+    let profileId = influencerProfileId;
+
+    // If forSelf=true, look up the calling user's own InfluencerProfile
+    if (forSelf || !profileId) {
+      const InfluencerProfile = require('../models/InfluencerProfile');
+      const profile = await InfluencerProfile.findOne({ user: req.user._id }).select('_id').lean();
+      if (!profile) return next(new AppError('Influencer profile not found', 404));
+      profileId = profile._id.toString();
+    }
+
+    const result = await callAI('/api/ai/matching/score', 'POST', { campaignId, influencerProfileId: profileId });
     success(res, result.data, 'Match score computed');
   } catch (err) {
     next(err);
@@ -171,8 +182,20 @@ exports.analyzeContentBatch = async (req, res, next) => {
 // @route   POST /api/v1/ai/pricing/recommend
 exports.getPricingRecommendation = async (req, res, next) => {
   try {
-    const userId = req.user._id.toString();
-    const result = await callAI('/api/ai/pricing/recommend', 'POST', { userId });
+    const { profileId } = req.body;
+
+    if (profileId) {
+      // Brand viewing an influencer — pass profileId directly to AI engine
+      const result = await callAI('/api/ai/pricing/recommend', 'POST', { profileId });
+      return success(res, result.data, 'Pricing recommendation generated');
+    }
+
+    // Influencer viewing their own pricing — resolve their profile
+    const InfluencerProfile = require('../models/InfluencerProfile');
+    const profile = await InfluencerProfile.findOne({ user: req.user._id }).select('_id').lean();
+    if (!profile) return next(new AppError('Influencer profile not found', 404));
+
+    const result = await callAI('/api/ai/pricing/recommend', 'POST', { profileId: profile._id.toString() });
     success(res, result.data, 'Pricing recommendation generated');
   } catch (err) {
     next(err);
@@ -342,6 +365,127 @@ exports.getAdminAIStats = async (req, res, next) => {
     }));
 
     success(res, { totalScored, avgScore, scoreDistribution, recentScores }, 'AI stats retrieved');
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+// ═══════════════════════════════════════
+// ADMIN AI FEATURES MANAGEMENT
+// ═══════════════════════════════════════
+
+const AI_FEATURE_DEFINITIONS = [
+  { key: 'aiMatching', name: 'AI Matching Engine', description: 'Intelligent campaign-influencer matching using multi-factor scoring algorithms.' },
+  { key: 'aiScoring', name: 'AI Scoring System', description: 'Automated influencer quality scoring based on engagement, reach, and authenticity.' },
+  { key: 'aiChatAssistant', name: 'AI Chat Assistant', description: 'Conversational AI assistant for brands and influencers with contextual guidance.' },
+  { key: 'aiContentAnalysis', name: 'Content Analysis', description: 'NLP-powered content quality analysis, sentiment detection, and brand safety checks.' },
+  { key: 'aiBriefGenerator', name: 'Brief Generator', description: 'AI-generated campaign briefs with optimized deliverables and timelines.' },
+];
+
+// @desc    Get all AI features with their status
+// @route   GET /api/v1/admin/ai/features
+exports.getAIFeatures = async (req, res, next) => {
+  try {
+    const PlatformSettings = require('../models/PlatformSettings');
+    let settings = await PlatformSettings.findOne({ key: 'global' });
+    if (!settings) {
+      settings = await PlatformSettings.create({ key: 'global' });
+    }
+    const flags = settings.featureFlags || {};
+    const configs = settings.aiFeatureConfigs || {};
+
+    const features = AI_FEATURE_DEFINITIONS.map(def => ({
+      _id: def.key,
+      name: def.name,
+      key: def.key,
+      description: def.description,
+      isEnabled: flags[def.key] !== undefined ? flags[def.key] : true,
+      config: configs[def.key] || {},
+      lastRecalibrated: settings.updatedAt || settings.createdAt,
+    }));
+
+    success(res, features, 'AI features retrieved');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Toggle an AI feature on/off
+// @route   PUT /api/v1/admin/ai/features/:id/toggle
+exports.toggleAIFeature = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isEnabled } = req.body;
+    const PlatformSettings = require('../models/PlatformSettings');
+    let settings = await PlatformSettings.findOne({ key: 'global' });
+    if (!settings) {
+      settings = await PlatformSettings.create({ key: 'global' });
+    }
+
+    const validKeys = AI_FEATURE_DEFINITIONS.map(d => d.key);
+    if (!validKeys.includes(id)) {
+      return next(new AppError('Invalid AI feature key', 400));
+    }
+
+    settings.featureFlags[id] = isEnabled;
+    settings.updatedBy = req.user._id;
+    settings.markModified('featureFlags');
+    await settings.save();
+
+    success(res, { key: id, isEnabled }, 'AI feature toggled');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Update config for an AI feature
+// @route   PUT /api/v1/admin/ai/features/:id/config
+exports.updateAIFeatureConfig = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { config } = req.body;
+
+    const validKeys = AI_FEATURE_DEFINITIONS.map(d => d.key);
+    if (!validKeys.includes(id)) {
+      return next(new AppError('Invalid AI feature key', 400));
+    }
+
+    if (!config || typeof config !== 'object') {
+      return next(new AppError('config must be a valid JSON object', 400));
+    }
+
+    // Store config in PlatformSettings under a dedicated aiFeatureConfigs map
+    const PlatformSettings = require('../models/PlatformSettings');
+    let settings = await PlatformSettings.findOne({ key: 'global' });
+    if (!settings) {
+      settings = await PlatformSettings.create({ key: 'global' });
+    }
+
+    if (!settings.aiFeatureConfigs) settings.aiFeatureConfigs = {};
+    settings.aiFeatureConfigs[id] = config;
+    settings.updatedBy = req.user._id;
+    settings.markModified('aiFeatureConfigs');
+    await settings.save();
+
+    success(res, { key: id, config }, 'AI feature config updated');
+  } catch (err) {
+    next(err);
+  }
+};
+
+// @desc    Recalculate global AI scores
+// @route   POST /api/v1/admin/ai/recalculate-scores
+exports.recalculateGlobalScores = async (req, res, next) => {
+  try {
+    // Try calling the AI engine's batch scoring endpoint
+    try {
+      await callAI('/api/ai/scoring/batch', 'POST', { profileIds: null });
+    } catch {
+      // AI engine may not be running — that's okay, just log it
+      console.warn('AI Engine not reachable for batch recalculation');
+    }
+    success(res, { initiated: true }, 'Global score recalculation initiated');
   } catch (err) {
     next(err);
   }
