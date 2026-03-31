@@ -16,6 +16,7 @@ const auditLogSchema = new mongoose.Schema(
         'user_unblocked',
         'user_deleted',
         'user_verified',
+        'user_profile_edited',
         'admin_created',
         // Campaign actions
         'campaign_approved',
@@ -23,6 +24,10 @@ const auditLogSchema = new mongoose.Schema(
         'campaign_flagged',
         'campaign_unflagged',
         'campaign_removed',
+        // Application actions
+        'application_override_approved',
+        'application_override_rejected',
+        'application_flagged_spam',
         // Payment actions
         'payment_released',
         'payment_refunded',
@@ -49,13 +54,16 @@ const auditLogSchema = new mongoose.Schema(
         'admin_logout',
         'export_data',
         'bulk_action',
+        'fraud_alert',
+        'error_log',
       ],
     },
     targetType: {
       type: String,
-      enum: ['user', 'campaign', 'payment', 'report', 'ticket', 'settings', 'system'],
+      enum: ['user', 'campaign', 'application', 'payment', 'report', 'ticket', 'settings', 'system', 'fraud'],
       default: 'system',
     },
+
     targetId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

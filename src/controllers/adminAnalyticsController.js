@@ -21,19 +21,31 @@ exports.getAnalyticsOverview = async (req, res, next) => {
       User.countDocuments({ role: 'influencer' }),
     ]);
 
-    // Signups trend (last 30 days)
-    const signupTrend = await User.aggregate([
+    // Signups trend (last 30 days) - ensure we have data for every day
+    const signupTrendRaw = await User.aggregate([
       { $match: { createdAt: { $gte: thirtyDaysAgo }, role: { $ne: 'admin' } } },
       {
         $group: {
           _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          count: { $sum: 1 },
+          total: { $sum: 1 },
           brands: { $sum: { $cond: [{ $eq: ['$role', 'brand'] }, 1, 0] } },
           influencers: { $sum: { $cond: [{ $eq: ['$role', 'influencer'] }, 1, 0] } },
         },
       },
       { $sort: { _id: 1 } },
     ]);
+
+    // Fill in missing days
+    const signupTrend = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const existing = signupTrendRaw.find((item) => item._id === dateStr);
+      signupTrend.push(existing ? { ...existing, count: existing.total } : { _id: dateStr, count: 0, brands: 0, influencers: 0 });
+    }
+
+
 
     // DAU approximation (users who logged in last 24h)
     const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
@@ -219,3 +231,65 @@ exports.exportAnalytics = async (req, res, next) => {
     next(err);
   }
 };
+
+// @desc    Get top performing brands and creators
+// @route   GET /api/v1/admin/analytics/top-performers
+exports.getTopPerformers = async (req, res, next) => {
+  try {
+    // Top Brands by campaign count
+    const topBrands = await Campaign.aggregate([
+      { $group: { _id: '$brand', campaignCount: { $sum: 1 } } },
+      { $sort: { campaignCount: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'details'
+        }
+      },
+      { $unwind: '$details' },
+      {
+        $project: {
+          _id: 1,
+          name: '$details.name',
+          email: '$details.email',
+          campaignCount: 1,
+          avatar: '$details.avatar'
+        }
+      }
+    ]);
+
+    // Top Influencers by accepted application count
+    const topCreators = await Application.aggregate([
+      { $match: { status: 'accepted' } },
+      { $group: { _id: '$influencer', acceptedCount: { $sum: 1 } } },
+      { $sort: { acceptedCount: -1 } },
+      { $limit: 5 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'details'
+        }
+      },
+      { $unwind: '$details' },
+      {
+        $project: {
+          _id: 1,
+          name: '$details.name',
+          email: '$details.email',
+          acceptedCount: 1,
+          avatar: '$details.avatar'
+        }
+      }
+    ]);
+
+    return success(res, { topBrands, topCreators });
+  } catch (err) {
+    next(err);
+  }
+};
+

@@ -28,6 +28,12 @@ const applicationSchema = new mongoose.Schema(
       trim: true,
       maxlength: 500,
     },
+    adminNote: {
+      type: String,
+      trim: true,
+      maxlength: 500,
+    },
+    isSpam: { type: Boolean, default: false },
     respondedAt: { type: Date },
   },
   { timestamps: true }

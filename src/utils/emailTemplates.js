@@ -44,6 +44,8 @@ const baseLayout = (content) => `
 </html>
 `;
 
+exports.baseLayout = baseLayout;
+
 exports.verificationOTP = (name, code) => baseLayout(`
   <h2>Hi ${name.split(' ')[0]},</h2>
   <p>Welcome to <strong>Connect.AI</strong>! We're excited to have you on board.</p>
@@ -82,3 +84,75 @@ exports.genericNotification = (name, title, message, actionUrl) => baseLayout(`
   <p>${message}</p>
   ${actionUrl ? `<a href="${actionUrl}" class="btn">View Details</a>` : ''}
 `);
+
+exports.welcome = (name) => baseLayout(`
+  <h2>Welcome to Connect.AI! 🎉</h2>
+  <p>Hi ${name.split(' ')[0]},</p>
+  <p>We're thrilled to have you join the <strong>Connect.AI</strong> community — the smartest way to connect brands with creators.</p>
+  <p>Here's what you can do next:</p>
+  <ul style="padding-left: 20px; color: #4b5563;">
+    <li>Complete your profile to get discovered</li>
+    <li>Explore campaigns that match your niche</li>
+    <li>Use AI tools to optimize your pricing and content</li>
+  </ul>
+  <a href="#" class="btn">Complete Your Profile</a>
+  <p style="margin-top: 30px; color: #9ca3af; font-size: 13px;">Need help? Reply to this email or visit our support center.</p>
+`);
+
+exports.campaignApproved = (name, campaignTitle) => baseLayout(`
+  <h2>Campaign Approved! ✅</h2>
+  <p>Hi ${name.split(' ')[0]},</p>
+  <p>Great news! Your campaign <strong>"${campaignTitle}"</strong> has been reviewed and approved by our team.</p>
+  <p>It's now live on the marketplace and influencers can start applying.</p>
+  <div style="background-color: #f1f6ff; border-radius: 12px; padding: 20px; margin: 20px 0; border-left: 4px solid #005EFF;">
+    <p style="margin: 0; font-weight: 600; color: #005EFF;">📢 ${campaignTitle}</p>
+    <p style="margin: 5px 0 0; color: #6b7280; font-size: 13px;">Status: Active — Accepting Applications</p>
+  </div>
+  <a href="#" class="btn">View Campaign</a>
+`);
+
+exports.paymentReceived = (name, amount, campaignTitle) => baseLayout(`
+  <h2>Payment Received! 💰</h2>
+  <p>Hi ${name.split(' ')[0]},</p>
+  <p>A payment of <strong>₹${Number(amount).toLocaleString('en-IN')}</strong> has been processed for the campaign <strong>"${campaignTitle}"</strong>.</p>
+  <div style="background-color: #f0fdf4; border-radius: 12px; padding: 20px; margin: 20px 0; text-align: center; border: 1px solid #bbf7d0;">
+    <p style="margin: 0; color: #6b7280; font-size: 13px;">Amount Received</p>
+    <p style="margin: 5px 0 0; font-size: 32px; font-weight: 800; color: #16a34a;">₹${Number(amount).toLocaleString('en-IN')}</p>
+  </div>
+  <p>The funds are now in your wallet. You can withdraw them anytime from your dashboard.</p>
+  <a href="#" class="btn">View Wallet</a>
+`);
+
+exports.weeklyDigest = (name, stats) => baseLayout(`
+  <h2>Your Weekly Digest 📊</h2>
+  <p>Hi ${name.split(' ')[0]},</p>
+  <p>Here's a summary of your activity this week on Connect.AI:</p>
+  <div style="background-color: #f9fafb; border-radius: 12px; padding: 20px; margin: 20px 0;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr>
+        <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Profile Views</td>
+        <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #111;">${stats?.profileViews || 0}</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">New Messages</td>
+        <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #111;">${stats?.newMessages || 0}</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 0; color: #6b7280; font-size: 14px;">Campaign Activity</td>
+        <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #111;">${stats?.campaignActivity || 0}</td>
+      </tr>
+    </table>
+  </div>
+  <a href="#" class="btn">View Dashboard</a>
+  <p style="margin-top: 20px; color: #9ca3af; font-size: 12px;">You can disable weekly digests in your notification settings.</p>
+`);
+
+// Map template keys to functions for admin preview
+exports.TEMPLATE_MAP = {
+  welcome: (name) => exports.welcome(name),
+  verification: (name) => exports.verificationOTP(name, '123456'),
+  passwordReset: (name) => exports.passwordReset(name, '654321'),
+  campaignApproved: (name) => exports.campaignApproved(name, 'Sample Campaign'),
+  paymentReceived: (name) => exports.paymentReceived(name, 25000, 'Sample Campaign'),
+  weeklyDigest: (name) => exports.weeklyDigest(name, { profileViews: 142, newMessages: 8, campaignActivity: 3 }),
+};

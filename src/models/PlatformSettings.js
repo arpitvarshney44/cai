@@ -46,12 +46,12 @@ const platformSettingsSchema = new mongoose.Schema(
     maintenanceMessage: { type: String, default: 'We are currently performing maintenance. Please try again later.' },
     // Email templates
     emailTemplates: {
-      welcome: { subject: { type: String, default: 'Welcome to Connect.AI' }, enabled: { type: Boolean, default: true } },
-      verification: { subject: { type: String, default: 'Verify your email' }, enabled: { type: Boolean, default: true } },
-      passwordReset: { subject: { type: String, default: 'Reset your password' }, enabled: { type: Boolean, default: true } },
-      campaignApproved: { subject: { type: String, default: 'Your campaign has been approved' }, enabled: { type: Boolean, default: true } },
-      paymentReceived: { subject: { type: String, default: 'Payment received' }, enabled: { type: Boolean, default: true } },
-      weeklyDigest: { subject: { type: String, default: 'Your weekly digest' }, enabled: { type: Boolean, default: false } },
+      welcome: { subject: { type: String, default: 'Welcome to Connect.AI' }, enabled: { type: Boolean, default: true }, body: { type: String, default: '' } },
+      verification: { subject: { type: String, default: 'Verify your email' }, enabled: { type: Boolean, default: true }, body: { type: String, default: '' } },
+      passwordReset: { subject: { type: String, default: 'Reset your password' }, enabled: { type: Boolean, default: true }, body: { type: String, default: '' } },
+      campaignApproved: { subject: { type: String, default: 'Your campaign has been approved' }, enabled: { type: Boolean, default: true }, body: { type: String, default: '' } },
+      paymentReceived: { subject: { type: String, default: 'Payment received' }, enabled: { type: Boolean, default: true }, body: { type: String, default: '' } },
+      weeklyDigest: { subject: { type: String, default: 'Your weekly digest' }, enabled: { type: Boolean, default: false }, body: { type: String, default: '' } },
     },
     // Notification settings
     notificationSettings: {
@@ -65,6 +65,30 @@ const platformSettingsSchema = new mongoose.Schema(
       apiRequestsPerMinute: { type: Number, default: 100 },
       loginAttemptsPerHour: { type: Number, default: 10 },
       messagePerMinute: { type: Number, default: 30 },
+    },
+    // Campaign limits
+    campaignLimits: {
+      maxActiveCampaignsPerBrand: { type: Number, default: 10 },
+      maxApplicationsPerCampaign: { type: Number, default: 100 },
+      maxDeliverablesPerCampaign: { type: Number, default: 20 },
+      minBudget: { type: Number, default: 1000 },
+      maxBudget: { type: Number, default: 10000000 },
+      maxCampaignDurationDays: { type: Number, default: 180 },
+    },
+    // Payment gateway config
+    paymentGateway: {
+      provider: { type: String, default: 'razorpay' },
+      razorpayKeyId: { type: String, default: '' },
+      razorpayKeySecret: { type: String, default: '' },
+      webhookSecret: { type: String, default: '' },
+      testMode: { type: Boolean, default: true },
+    },
+    // Platform fees
+    platformFees: {
+      featuredListingFee: { type: Number, default: 999 },
+      urgentCampaignFee: { type: Number, default: 499 },
+      verificationFee: { type: Number, default: 0 },
+      adCampaignMinSpend: { type: Number, default: 500 },
     },
     // Last updated by
     updatedBy: {

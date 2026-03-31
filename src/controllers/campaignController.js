@@ -64,6 +64,11 @@ exports.updateCampaign = async (req, res, next) => {
       }
     });
 
+    // When brand tries to publish (set to active), route to pending for admin approval
+    if (req.body.status === 'active' && !campaign.isAdminApproved) {
+      campaign.status = 'pending';
+    }
+
     await campaign.save();
 
     return success(res, { campaign }, 'Campaign updated successfully');

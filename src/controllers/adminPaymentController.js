@@ -86,33 +86,96 @@ exports.getPaymentDashboard = async (req, res, next) => {
 // @route   GET /api/v1/admin/payments/transactions
 exports.getAllTransactions = async (req, res, next) => {
   try {
-    const { status, type, page = 1, limit = 30 } = req.query;
+    const { status, type, search, startDate, endDate, minAmount, maxAmount, page = 1, limit = 30 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const filter = {};
-    if (status) filter.status = status;
-    if (type) filter.type = type;
+    const matchFilter = {};
+    if (status) matchFilter.status = status;
+    if (type) matchFilter.type = type;
+    
+    if (startDate || endDate) {
+      matchFilter.createdAt = {};
+      if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
+      if (endDate) matchFilter.createdAt.$lte = new Date(endDate);
+    }
 
-    const [payments, total] = await Promise.all([
-      Payment.find(filter)
-        .populate('campaign', 'title')
-        .populate('brand', 'name email')
-        .populate('influencer', 'name email')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .lean(),
-      Payment.countDocuments(filter),
+    if (minAmount || maxAmount) {
+      matchFilter.amount = {};
+      if (minAmount) matchFilter.amount.$gte = Number(minAmount);
+      if (maxAmount) matchFilter.amount.$lte = Number(maxAmount);
+    }
+
+    const pipeline = [
+      { $match: matchFilter },
+      {
+        $lookup: {
+          from: 'users', localField: 'brand', foreignField: '_id', as: 'brandInfo'
+        }
+      },
+      {
+        $lookup: {
+          from: 'users', localField: 'influencer', foreignField: '_id', as: 'influencerInfo'
+        }
+      },
+      {
+        $lookup: {
+          from: 'campaigns', localField: 'campaign', foreignField: '_id', as: 'campaignInfo'
+        }
+      },
+      { $unwind: { path: '$brandInfo', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$influencerInfo', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$campaignInfo', preserveNullAndEmptyArrays: true } },
+    ];
+
+    if (search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'brandInfo.name': { $regex: search, $options: 'i' } },
+            { 'brandInfo.email': { $regex: search, $options: 'i' } },
+            { 'influencerInfo.name': { $regex: search, $options: 'i' } },
+            { 'influencerInfo.email': { $regex: search, $options: 'i' } },
+            { 'campaignInfo.title': { $regex: search, $options: 'i' } },
+            { description: { $regex: search, $options: 'i' } },
+          ]
+        }
+      });
+    }
+
+    const totalPipeline = [...pipeline, { $count: 'total' }];
+    const dataPipeline = [
+      ...pipeline,
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: parseInt(limit) },
+      {
+        $project: {
+          _id: 1, amount: 1, currency: 1, status: 1, type: 1,
+          platformFee: 1, platformFeePercent: 1, influencerPayout: 1, 
+          payoutStatus: 1, createdAt: 1, description: 1,
+          brand: { _id: '$brandInfo._id', name: '$brandInfo.name', email: '$brandInfo.email' },
+          influencer: { _id: '$influencerInfo._id', name: '$influencerInfo.name', email: '$influencerInfo.email' },
+          campaign: { _id: '$campaignInfo._id', title: '$campaignInfo.title' }
+        }
+      }
+    ];
+
+    const [transactions, totalResult] = await Promise.all([
+      Payment.aggregate(dataPipeline),
+      Payment.aggregate(totalPipeline)
     ]);
 
+    const total = totalResult[0]?.total || 0;
+
     return success(res, {
-      payments,
+      payments: transactions,
       pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (error) {
     next(error);
   }
 };
+
 
 // @desc    Admin: Get subscription analytics
 // @route   GET /api/v1/admin/payments/subscriptions
@@ -182,4 +245,81 @@ exports.getCommissionReport = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+const AuditLog = require('../models/AuditLog');
+const { AppError } = require('../middleware/errorHandler');
+
+// @desc    Release escrow payment
+// @route   PUT /api/v1/admin/payments/:id/release
+exports.releaseEscrow = async (req, res, next) => {
+  try {
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return next(new AppError('Payment not found', 404));
+    if (payment.status !== 'escrow_held') return next(new AppError('Payment is not in escrow', 400));
+
+    payment.status = 'released';
+    payment.releasedAt = new Date();
+    payment.releasedBy = req.user._id;
+    payment.releaseNote = req.body.note || '';
+    payment.payoutStatus = 'processing';
+    await payment.save();
+
+    await AuditLog.create({
+      admin: req.user._id, action: 'payment_released', targetType: 'payment',
+      targetId: payment._id, description: `Released ₹${payment.amount} escrow for payment ${payment._id}`,
+      severity: 'info',
+    });
+
+    return success(res, { payment }, 'Escrow released');
+  } catch (err) { next(err); }
+};
+
+// @desc    Process refund
+// @route   PUT /api/v1/admin/payments/:id/refund
+exports.processRefund = async (req, res, next) => {
+  try {
+    const { amount, reason } = req.body;
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return next(new AppError('Payment not found', 404));
+    if (!['escrow_held', 'released'].includes(payment.status)) return next(new AppError('Cannot refund this payment', 400));
+
+    const refundAmount = amount || payment.amount;
+    payment.status = refundAmount >= payment.amount ? 'refunded' : 'partially_refunded';
+    payment.refundedAt = new Date();
+    payment.refundAmount = refundAmount;
+    payment.refundReason = reason || '';
+    await payment.save();
+
+    await AuditLog.create({
+      admin: req.user._id, action: 'payment_refunded', targetType: 'payment',
+      targetId: payment._id, description: `Refunded ₹${refundAmount} — ${reason || 'No reason'}`,
+      severity: 'warning',
+    });
+
+    return success(res, { payment }, 'Refund processed');
+  } catch (err) { next(err); }
+};
+
+// @desc    Process payout to influencer
+// @route   PUT /api/v1/admin/payments/:id/payout
+exports.processPayout = async (req, res, next) => {
+  try {
+    const payment = await Payment.findById(req.params.id);
+    if (!payment) return next(new AppError('Payment not found', 404));
+    if (payment.status !== 'released') return next(new AppError('Payment must be released first', 400));
+    if (payment.payoutStatus === 'completed') return next(new AppError('Payout already completed', 400));
+
+    payment.payoutStatus = 'completed';
+    payment.payoutCompletedAt = new Date();
+    await payment.save();
+
+    await AuditLog.create({
+      admin: req.user._id, action: 'payout_processed', targetType: 'payment',
+      targetId: payment._id, description: `Payout ₹${payment.influencerPayout} completed`,
+      severity: 'info',
+    });
+
+    return success(res, { payment }, 'Payout processed');
+  } catch (err) { next(err); }
 };

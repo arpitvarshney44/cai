@@ -36,6 +36,7 @@ exports.updateSettings = async (req, res, next) => {
       'commissionRate', 'minWithdrawal', 'maxWithdrawal',
       'subscriptionPrices', 'featureFlags', 'maintenanceMode',
       'maintenanceMessage', 'emailTemplates', 'notificationSettings', 'rateLimits',
+      'campaignLimits', 'paymentGateway', 'platformFees',
     ];
 
     allowedFields.forEach(field => {

@@ -59,6 +59,22 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // Admin-specific fields
+    adminRole: {
+      type: String,
+      enum: ['super_admin', 'moderator', 'finance_manager', 'support_agent'],
+      default: null,
+    },
+    permissions: [{
+      type: String,
+      enum: [
+        'users_manage', 'users_delete', 'campaigns_manage', 'campaigns_moderate',
+        'payments_view', 'payments_release', 'payments_refund',
+        'support_manage', 'moderation_manage', 'ai_manage',
+        'settings_manage', 'admins_manage', 'analytics_view', 'audit_view',
+        'notifications_send', 'media_manage',
+      ],
+    }],
   },
   {
     timestamps: true,

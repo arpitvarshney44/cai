@@ -71,14 +71,14 @@ const campaignSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'active', 'paused', 'in_progress', 'completed', 'cancelled'],
+      enum: ['draft', 'pending', 'active', 'paused', 'in_progress', 'completed', 'cancelled'],
       default: 'draft',
     },
     coverImage: { type: String, default: null },
     tags: [{ type: String, trim: true }],
     applicationsCount: { type: Number, default: 0 },
     maxApplications: { type: Number, default: 0 }, // 0 = unlimited
-    isAdminApproved: { type: Boolean, default: true }, // for moderation
+    isAdminApproved: { type: Boolean, default: false }, // requires admin approval
     isFlagged: { type: Boolean, default: false },
     moderationNote: { type: String, trim: true, maxlength: 500 },
     isFeatured: { type: Boolean, default: false },

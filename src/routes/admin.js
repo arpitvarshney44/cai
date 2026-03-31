@@ -3,6 +3,7 @@ const router = express.Router();
 const adminController = require('../controllers/adminController');
 const validate = require('../middleware/validate');
 const { protect, authorize } = require('../middleware/auth');
+const { requirePermission } = require('../middleware/permission');
 const { adminLoginRules, createAdminRules } = require('../validators/adminValidator');
 
 const adminDiscoveryController = require('../controllers/adminDiscoveryController');
@@ -13,6 +14,7 @@ const supportController = require('../controllers/supportController');
 const settingsController = require('../controllers/settingsController');
 const auditController = require('../controllers/auditController');
 const adminAnalyticsController = require('../controllers/adminAnalyticsController');
+const emailController = require('../controllers/emailController');
 
 // Public — admin login
 router.post('/login', validate(adminLoginRules), adminController.adminLogin);
@@ -20,71 +22,109 @@ router.post('/login', validate(adminLoginRules), adminController.adminLogin);
 // All routes below require admin role
 router.use(protect, authorize('admin'));
 
-// Stats
+// Stats — all admins can see dashboard
 router.get('/stats', adminController.getStats);
 
 // Discovery analytics
-router.get('/discovery/analytics', adminDiscoveryController.getDiscoveryAnalytics);
+router.get('/discovery/analytics', requirePermission('analytics_view'), adminDiscoveryController.getDiscoveryAnalytics);
 
 // User management
-router.get('/users', adminController.getAllUsers);
-router.get('/users/:id', adminController.getUserById);
-router.put('/users/:id/block', adminController.toggleBlockUser);
-router.delete('/users/:id', adminController.deleteUser);
+router.get('/users', requirePermission('users_manage'), adminController.getAllUsers);
+router.get('/users/:id', requirePermission('users_manage'), adminController.getUserById);
+router.put('/users/:id/block', requirePermission('users_manage'), adminController.toggleBlockUser);
+router.put('/users/:id/verify', requirePermission('users_manage'), adminController.toggleVerifyUser);
+router.put('/users/:id/profile', requirePermission('users_manage'), adminController.updateUserProfile);
+router.get('/users/:id/activity', requirePermission('users_manage'), adminController.getUserActivity);
+router.delete('/users/:id', requirePermission('users_delete'), adminController.deleteUser);
 
-// Create new admin
-router.post('/create-admin', validate(createAdminRules), adminController.createAdmin);
+// Create new admin — only admins_manage
+router.post('/create-admin', requirePermission('admins_manage'), validate(createAdminRules), adminController.createAdmin);
 
 // Campaign management
-router.get('/campaigns/stats', adminController.getCampaignStats);
-router.get('/campaigns', adminController.getAllCampaigns);
-router.get('/campaigns/:id', adminController.getCampaignById);
-router.put('/campaigns/:id/moderate', adminController.moderateCampaign);
+router.get('/campaigns/stats', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getCampaignStats);
+router.get('/campaigns', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getAllCampaigns);
+router.get('/campaigns/:id', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getCampaignById);
+router.put('/campaigns/:id/moderate', requirePermission('campaigns_moderate'), adminController.moderateCampaign);
+router.put('/campaigns/:id/edit', requirePermission('campaigns_manage'), adminController.editCampaignAdmin);
+
+// Application management
+router.get('/applications/stats', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getApplicationStats);
+router.get('/applications', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getAllApplications);
+router.get('/applications/:id', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getApplicationById);
+router.put('/applications/:id/override', requirePermission('campaigns_manage'), adminController.overrideApplication);
+router.put('/applications/:id/spam', requirePermission('campaigns_moderate'), adminController.toggleSpamApplication);
 
 // Payment & Revenue
-router.get('/payments/dashboard', adminPaymentController.getPaymentDashboard);
-router.get('/payments/transactions', adminPaymentController.getAllTransactions);
-router.get('/payments/subscriptions', adminPaymentController.getSubscriptionAnalytics);
-router.get('/payments/commissions', adminPaymentController.getCommissionReport);
+router.get('/payments/dashboard', requirePermission('payments_view'), adminPaymentController.getPaymentDashboard);
+router.get('/payments/transactions', requirePermission('payments_view'), adminPaymentController.getAllTransactions);
+router.get('/payments/subscriptions', requirePermission('payments_view'), adminPaymentController.getSubscriptionAnalytics);
+router.get('/payments/commissions', requirePermission('payments_view'), adminPaymentController.getCommissionReport);
+router.put('/payments/:id/release', requirePermission('payments_release'), adminPaymentController.releaseEscrow);
+router.put('/payments/:id/refund', requirePermission('payments_refund'), adminPaymentController.processRefund);
+router.put('/payments/:id/payout', requirePermission('payments_release'), adminPaymentController.processPayout);
 
 // AI Management
-router.get('/ai/stats', aiController.getAdminAIStats);
-router.get('/ai/features', aiController.getAIFeatures);
-router.put('/ai/features/:id/toggle', aiController.toggleAIFeature);
-router.put('/ai/features/:id/config', aiController.updateAIFeatureConfig);
-router.post('/ai/recalculate-scores', aiController.recalculateGlobalScores);
+router.get('/ai/stats', requirePermission('ai_manage', 'analytics_view'), aiController.getAdminAIStats);
+router.get('/ai/features', requirePermission('ai_manage'), aiController.getAIFeatures);
+router.put('/ai/features/:id/toggle', requirePermission('ai_manage'), aiController.toggleAIFeature);
+router.put('/ai/features/:id/config', requirePermission('ai_manage'), aiController.updateAIFeatureConfig);
+router.post('/ai/recalculate-scores', requirePermission('ai_manage'), aiController.recalculateGlobalScores);
 
-// Moderation (Task 60)
-router.get('/moderation/stats', moderationController.getModerationStats);
-router.get('/moderation/reports', moderationController.getReports);
-router.get('/moderation/reports/:id', moderationController.getReportById);
-router.put('/moderation/reports/:id/review', moderationController.reviewReport);
-router.put('/moderation/reports/:id/assign', moderationController.assignReport);
-router.post('/moderation/warn/:userId', moderationController.warnUser);
+// Moderation
+router.get('/moderation/stats', requirePermission('moderation_manage'), moderationController.getModerationStats);
+router.get('/moderation/reports', requirePermission('moderation_manage'), moderationController.getReports);
+router.get('/moderation/reports/:id', requirePermission('moderation_manage'), moderationController.getReportById);
+router.put('/moderation/reports/:id/review', requirePermission('moderation_manage'), moderationController.reviewReport);
+router.put('/moderation/reports/:id/assign', requirePermission('moderation_manage'), moderationController.assignReport);
+router.post('/moderation/warn/:userId', requirePermission('moderation_manage'), moderationController.warnUser);
 
-// Analytics & Reports (Task 61)
-router.get('/analytics/overview', adminAnalyticsController.getAnalyticsOverview);
-router.get('/analytics/export', adminAnalyticsController.exportAnalytics);
+// Analytics & Reports
+router.get('/analytics/overview', requirePermission('analytics_view'), adminAnalyticsController.getAnalyticsOverview);
+router.get('/analytics/top-performers', requirePermission('analytics_view'), adminAnalyticsController.getTopPerformers);
+router.get('/analytics/export', requirePermission('analytics_view'), adminAnalyticsController.exportAnalytics);
 
-// Settings & Configuration (Task 62)
-router.get('/settings', settingsController.getSettings);
-router.put('/settings', settingsController.updateSettings);
-router.put('/settings/feature-flags/:flag', settingsController.toggleFeatureFlag);
-router.put('/settings/maintenance', settingsController.toggleMaintenance);
+// Settings & Configuration
+router.get('/settings', requirePermission('settings_manage'), settingsController.getSettings);
+router.put('/settings', requirePermission('settings_manage'), settingsController.updateSettings);
+router.put('/settings/feature-flags/:flag', requirePermission('settings_manage'), settingsController.toggleFeatureFlag);
+router.put('/settings/maintenance', requirePermission('settings_manage'), settingsController.toggleMaintenance);
 
-// Support & Tickets (Task 63)
-router.get('/support/stats', supportController.getTicketStats);
-router.get('/support/tickets', supportController.getAllTickets);
-router.get('/support/tickets/:id', supportController.getTicketById);
-router.post('/support/tickets/:id/respond', supportController.respondToTicket);
-router.put('/support/tickets/:id/assign', supportController.assignTicket);
-router.put('/support/tickets/:id/status', supportController.updateTicketStatus);
-router.put('/support/tickets/:id/resolve', supportController.resolveTicket);
-router.put('/support/tickets/:id/close', supportController.closeTicket);
+// Support & Tickets
+router.get('/support/stats', requirePermission('support_manage'), supportController.getTicketStats);
+router.get('/support/tickets', requirePermission('support_manage'), supportController.getAllTickets);
+router.get('/support/tickets/:id', requirePermission('support_manage'), supportController.getTicketById);
+router.post('/support/tickets/:id/respond', requirePermission('support_manage'), supportController.respondToTicket);
+router.put('/support/tickets/:id/assign', requirePermission('support_manage'), supportController.assignTicket);
+router.put('/support/tickets/:id/status', requirePermission('support_manage'), supportController.updateTicketStatus);
+router.put('/support/tickets/:id/resolve', requirePermission('support_manage'), supportController.resolveTicket);
+router.put('/support/tickets/:id/close', requirePermission('support_manage'), supportController.closeTicket);
 
-// Audit Logs (Task 65)
-router.get('/audit-logs', auditController.getAuditLogs);
-router.get('/audit-logs/stats', auditController.getAuditStats);
-router.get('/audit-logs/export', auditController.exportAuditLogs);
+// Audit Logs
+router.get('/audit-logs', requirePermission('audit_view'), auditController.getAuditLogs);
+router.get('/audit-logs/stats', requirePermission('audit_view'), auditController.getAuditStats);
+router.get('/audit-logs/export', requirePermission('audit_view'), auditController.exportAuditLogs);
+
+// Notifications
+router.get('/notifications/logs', requirePermission('notifications_send'), adminController.getNotificationLogs);
+router.post('/notifications/send', requirePermission('notifications_send'), adminController.sendAnnouncement);
+
+// System Health — all admins can view
+router.get('/system/health', adminController.getSystemHealth);
+
+// Admin Role Management — only admins_manage
+router.get('/admins', requirePermission('admins_manage'), adminController.getAllAdmins);
+router.put('/admins/:id/role', requirePermission('admins_manage'), adminController.updateAdminRole);
+
+// Content & Media
+router.get('/media', requirePermission('media_manage'), adminController.getMediaFiles);
+router.delete('/media/:filename', requirePermission('media_manage'), adminController.deleteMediaFile);
+
+// Email Management
+router.get('/emails/templates', requirePermission('settings_manage'), emailController.getEmailTemplates);
+router.put('/emails/templates/:key', requirePermission('settings_manage'), emailController.updateEmailTemplate);
+router.get('/emails/preview/:key', requirePermission('settings_manage'), emailController.previewTemplate);
+router.post('/emails/send-bulk', requirePermission('notifications_send'), emailController.sendBulkEmail);
+router.post('/emails/send-test', requirePermission('settings_manage'), emailController.sendTestEmail);
+router.get('/emails/logs', requirePermission('notifications_send'), emailController.getEmailLogs);
 
 module.exports = router;
