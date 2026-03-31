@@ -54,16 +54,13 @@ const auditLogSchema = new mongoose.Schema(
         'admin_logout',
         'export_data',
         'bulk_action',
-        'fraud_alert',
-        'error_log',
       ],
     },
     targetType: {
       type: String,
-      enum: ['user', 'campaign', 'application', 'payment', 'report', 'ticket', 'settings', 'system', 'fraud'],
+      enum: ['user', 'campaign', 'application', 'payment', 'report', 'ticket', 'settings', 'system'],
       default: 'system',
     },
-
     targetId: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,

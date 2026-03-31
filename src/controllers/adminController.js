@@ -88,7 +88,7 @@ exports.getAllUsers = async (req, res, next) => {
     if (isBlocked !== undefined) filter.isBlocked = isBlocked === 'true';
     if (isVerified !== undefined) filter.isVerified = isVerified === 'true';
 
-    // Combined status filter from admin panel
+    // Handle combined status filter from admin panel
     if (status === 'verified') {
       filter.isVerified = true;
       filter.isBlocked = false;
@@ -99,27 +99,12 @@ exports.getAllUsers = async (req, res, next) => {
       filter.isBlocked = true;
     }
 
-    // Advanced search: name, email, or _id
     if (search) {
-      const orConditions = [
+      filter.$or = [
         { name: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } },
       ];
-      // Check if search term is a valid MongoDB ObjectId
-      if (search.match(/^[0-9a-fA-F]{24}$/)) {
-        orConditions.push({ _id: search });
-      }
-      filter.$or = orConditions;
     }
-
-    // Historical filtering: after specific joined date
-    if (req.query.joinedDate) {
-      const startDate = new Date(req.query.joinedDate);
-      const endDate = new Date(req.query.joinedDate);
-      endDate.setDate(endDate.getDate() + 1); // Get full day window
-      filter.createdAt = { $gte: startDate, $lt: endDate };
-    }
-
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const sortOrder = order === 'asc' ? 1 : -1;
@@ -467,60 +452,42 @@ exports.getUserActivity = async (req, res, next) => {
 
 // @desc    Get platform stats (users + campaigns)
 // @route   GET /api/v1/admin/stats
- exports.getStats = async (req, res, next) => {
+exports.getStats = async (req, res, next) => {
   try {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
     const [
-      totalUsers, totalBrands, totalInfluencers, activeCampaigns,
-      totalApplications, acceptedApplications,
-      recentSignups,
-      topInfluencers,
-      topBrands,
+      totalUsers, totalBrands, totalInfluencers, blockedUsers, unverifiedUsers, recentSignups,
+      totalCampaigns, activeCampaigns, completedCampaigns, totalApplications,
     ] = await Promise.all([
       User.countDocuments({ role: { $ne: 'admin' } }),
       User.countDocuments({ role: 'brand' }),
       User.countDocuments({ role: 'influencer' }),
+      User.countDocuments({ isBlocked: true }),
+      User.countDocuments({ isVerified: false, role: { $ne: 'admin' } }),
+      User.countDocuments({ createdAt: { $gte: sevenDaysAgo }, role: { $ne: 'admin' } }),
+      Campaign.countDocuments(),
       Campaign.countDocuments({ status: 'active' }),
+      Campaign.countDocuments({ status: 'completed' }),
       Application.countDocuments(),
-      Application.countDocuments({ status: 'accepted' }),
-      User.countDocuments({ createdAt: { $gte: thirtyDaysAgo }, role: { $ne: 'admin' } }),
-      // Top Influencers (by followers/activity - simplified for now)
-      User.find({ role: 'influencer' }).sort({ createdAt: -1 }).limit(5).select('name email'),
-      // Top Brands
-      User.find({ role: 'brand' }).sort({ createdAt: -1 }).limit(5).select('name email'),
     ]);
 
-    // Conversion rate: (Accepted Apps / Total Apps) * 100
-    const conversionRate = totalApplications > 0 
-      ? ((acceptedApplications / totalApplications) * 100).toFixed(1) 
-      : 0;
-
-    // Growth Metrics - Simple month over month
-    const lastMonthSignups = await User.countDocuments({ 
-      createdAt: { $gte: thirtyDaysAgo, $lt: new Date() }, 
-      role: { $ne: 'admin' } 
-    });
-
     return success(res, {
-      metrics: {
-        totalUsers,
-        totalBrands,
-        totalInfluencers,
-        activeCampaigns,
-        conversionRate,
-        growth: lastMonthSignups,
-      },
-      topCreators: topInfluencers,
-      topBrands: topBrands,
-      recentSignupsCount: recentSignups,
+      totalUsers,
+      totalBrands,
+      totalInfluencers,
+      blockedUsers,
+      unverifiedUsers,
+      recentSignups,
+      totalCampaigns,
+      activeCampaigns,
+      completedCampaigns,
+      totalApplications,
     });
   } catch (error) {
     next(error);
   }
 };
-
 
 // @desc    Create a new admin user
 // @route   POST /api/v1/admin/create-admin

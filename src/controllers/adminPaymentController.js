@@ -86,96 +86,33 @@ exports.getPaymentDashboard = async (req, res, next) => {
 // @route   GET /api/v1/admin/payments/transactions
 exports.getAllTransactions = async (req, res, next) => {
   try {
-    const { status, type, search, startDate, endDate, minAmount, maxAmount, page = 1, limit = 30 } = req.query;
+    const { status, type, page = 1, limit = 30 } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    const matchFilter = {};
-    if (status) matchFilter.status = status;
-    if (type) matchFilter.type = type;
-    
-    if (startDate || endDate) {
-      matchFilter.createdAt = {};
-      if (startDate) matchFilter.createdAt.$gte = new Date(startDate);
-      if (endDate) matchFilter.createdAt.$lte = new Date(endDate);
-    }
+    const filter = {};
+    if (status) filter.status = status;
+    if (type) filter.type = type;
 
-    if (minAmount || maxAmount) {
-      matchFilter.amount = {};
-      if (minAmount) matchFilter.amount.$gte = Number(minAmount);
-      if (maxAmount) matchFilter.amount.$lte = Number(maxAmount);
-    }
-
-    const pipeline = [
-      { $match: matchFilter },
-      {
-        $lookup: {
-          from: 'users', localField: 'brand', foreignField: '_id', as: 'brandInfo'
-        }
-      },
-      {
-        $lookup: {
-          from: 'users', localField: 'influencer', foreignField: '_id', as: 'influencerInfo'
-        }
-      },
-      {
-        $lookup: {
-          from: 'campaigns', localField: 'campaign', foreignField: '_id', as: 'campaignInfo'
-        }
-      },
-      { $unwind: { path: '$brandInfo', preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: '$influencerInfo', preserveNullAndEmptyArrays: true } },
-      { $unwind: { path: '$campaignInfo', preserveNullAndEmptyArrays: true } },
-    ];
-
-    if (search) {
-      pipeline.push({
-        $match: {
-          $or: [
-            { 'brandInfo.name': { $regex: search, $options: 'i' } },
-            { 'brandInfo.email': { $regex: search, $options: 'i' } },
-            { 'influencerInfo.name': { $regex: search, $options: 'i' } },
-            { 'influencerInfo.email': { $regex: search, $options: 'i' } },
-            { 'campaignInfo.title': { $regex: search, $options: 'i' } },
-            { description: { $regex: search, $options: 'i' } },
-          ]
-        }
-      });
-    }
-
-    const totalPipeline = [...pipeline, { $count: 'total' }];
-    const dataPipeline = [
-      ...pipeline,
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: parseInt(limit) },
-      {
-        $project: {
-          _id: 1, amount: 1, currency: 1, status: 1, type: 1,
-          platformFee: 1, platformFeePercent: 1, influencerPayout: 1, 
-          payoutStatus: 1, createdAt: 1, description: 1,
-          brand: { _id: '$brandInfo._id', name: '$brandInfo.name', email: '$brandInfo.email' },
-          influencer: { _id: '$influencerInfo._id', name: '$influencerInfo.name', email: '$influencerInfo.email' },
-          campaign: { _id: '$campaignInfo._id', title: '$campaignInfo.title' }
-        }
-      }
-    ];
-
-    const [transactions, totalResult] = await Promise.all([
-      Payment.aggregate(dataPipeline),
-      Payment.aggregate(totalPipeline)
+    const [payments, total] = await Promise.all([
+      Payment.find(filter)
+        .populate('campaign', 'title')
+        .populate('brand', 'name email')
+        .populate('influencer', 'name email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Payment.countDocuments(filter),
     ]);
 
-    const total = totalResult[0]?.total || 0;
-
     return success(res, {
-      payments: transactions,
+      payments,
       pagination: { page: parseInt(page), limit: parseInt(limit), total, pages: Math.ceil(total / parseInt(limit)) },
     });
   } catch (error) {
     next(error);
   }
 };
-
 
 // @desc    Admin: Get subscription analytics
 // @route   GET /api/v1/admin/payments/subscriptions
