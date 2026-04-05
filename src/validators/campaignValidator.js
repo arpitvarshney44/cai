@@ -29,7 +29,7 @@ exports.createCampaignValidator = [
     .isISO8601().withMessage('End date must be a valid date'),
   body('status')
     .optional()
-    .isIn(['draft', 'active']).withMessage('Status must be draft or active'),
+    .isIn(['draft', 'active', 'pending']).withMessage('Status must be draft, active or pending'),
 ];
 
 exports.updateCampaignValidator = [
