@@ -30,6 +30,7 @@ const invitationSchema = new mongoose.Schema(
     },
     respondedAt: { type: Date },
     expiresAt: { type: Date },
+    proposedPrice: { type: Number, default: null },
   },
   { timestamps: true }
 );

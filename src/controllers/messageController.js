@@ -176,9 +176,12 @@ exports.sendMessage = async (req, res, next) => {
       });
     }
 
+    // Notify all other participants
+    const notifyPromises = [];
     conversation.participants.forEach((participantId) => {
       const pid = participantId.toString();
       if (pid !== userId) {
+        // Always emit conversationUpdated for badge/list refresh
         if (io) {
           io.to(`user:${pid}`).emit('conversationUpdated', {
             conversationId,
@@ -186,23 +189,40 @@ exports.sendMessage = async (req, res, next) => {
             unreadCount: conversation.unreadCounts.get(pid) || 0,
           });
         }
-        
-        notificationUtil.createNotification(pid, {
-          type: 'message',
-          title: `New message from ${populatedMessage.sender.name}`,
-          body: text || 'Sent an attachment',
-          data: {
-            screen: 'Chat',
-            referenceId: conversationId,
-            referenceType: 'conversation',
-            extra: { 
-              senderName: populatedMessage.sender.name,
-              senderId: userId
-            }
-          }
-        });
+
+        // Only send push notification if recipient is NOT actively in this conversation
+        // We check by seeing if they're in the conversation socket room
+        const isInConversation = io
+          ? io.sockets.adapter.rooms.get(`conversation:${conversationId}`)?.has(
+              [...(io.sockets.adapter.rooms.get(`user:${pid}`) || [])][0]
+            )
+          : false;
+
+        if (!isInConversation) {
+          notifyPromises.push(
+            notificationUtil.createNotification(pid, {
+              type: 'message',
+              title: `💬 ${populatedMessage.sender.name}`,
+              body: text
+                ? text.length > 80 ? text.substring(0, 80) + '…' : text
+                : '📎 Sent an attachment',
+              data: {
+                screen: 'Chat',
+                referenceId: conversationId,
+                referenceType: 'conversation',
+                extra: {
+                  conversationId,
+                  senderName: populatedMessage.sender.name,
+                  senderId: userId,
+                },
+              },
+            }).catch(err => console.error('[Message Push] Failed:', err.message))
+          );        }
       }
     });
+
+    // Fire notifications in background — don't block the response
+    Promise.all(notifyPromises).catch(() => {});
 
     return success(res, { message: populatedMessage }, 'Message sent', 201);
   } catch (error) {

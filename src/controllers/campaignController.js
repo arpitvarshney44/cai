@@ -24,10 +24,13 @@ exports.createCampaign = async (req, res, next) => {
       milestones: milestones || [],
       timeline: timeline || {},
       requirements: requirements || {},
-      status: status || 'draft',
       coverImage,
       tags: tags || [],
       maxApplications: maxApplications || 0,
+      // Brands can only save as draft or submit for review (pending).
+      // 'active' is reserved for admin-approved campaigns only.
+      status: status === 'active' ? 'pending' : (status || 'draft'),
+      isAdminApproved: false,
     });
 
     return success(res, { campaign }, 'Campaign created successfully', 201);
@@ -64,9 +67,11 @@ exports.updateCampaign = async (req, res, next) => {
       }
     });
 
-    // When brand tries to publish (set to active), route to pending for admin approval
-    if (req.body.status === 'active' && !campaign.isAdminApproved) {
+    // When brand tries to publish (set to active), always route to pending for admin approval.
+    // Also reset approval if brand edits a previously approved campaign and re-submits.
+    if (req.body.status === 'active') {
       campaign.status = 'pending';
+      campaign.isAdminApproved = false;
     }
 
     await campaign.save();

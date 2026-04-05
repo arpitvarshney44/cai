@@ -3,6 +3,7 @@ const Campaign = require('../models/Campaign');
 const User = require('../models/User');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
+const { createNotification } = require('../utils/notificationUtil');
 
 // @desc    Send invitation to influencer
 // @route   POST /api/v1/invitations
@@ -52,6 +53,33 @@ exports.sendInvitation = async (req, res, next) => {
       expiresAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
     });
 
+    // Notify influencer — in-app + push + email
+    createNotification(resolvedInfluencerId, {
+      type: 'invitation',
+      title: '🎯 New Campaign Invitation',
+      body: `${req.user.name} invited you to collaborate on "${campaign.title}"`,
+      data: {
+        screen: 'Invitations',
+        referenceId: invitation._id.toString(),
+        referenceType: 'invitation',
+        extra: {
+          campaignId: campaignId.toString(),
+          campaignTitle: campaign.title,
+          brandName: req.user.name,
+        },
+      },
+    }).catch(err => console.error('[Invitation] Notification failed:', err.message));
+
+    // Emit real-time socket event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${resolvedInfluencerId}`).emit('newInvitation', {
+        invitationId: invitation._id,
+        campaignTitle: campaign.title,
+        brandName: req.user.name,
+      });
+    }
+
     return success(res, { invitation }, 'Invitation sent successfully', 201);
   } catch (error) {
     if (error.code === 11000) {
@@ -66,7 +94,7 @@ exports.sendInvitation = async (req, res, next) => {
 // @access  Influencer only
 exports.respondToInvitation = async (req, res, next) => {
   try {
-    const { status } = req.body;
+    const { status, proposedPrice } = req.body;
 
     if (!['accepted', 'rejected'].includes(status)) {
       return next(new AppError('Status must be accepted or rejected', 400));
@@ -92,7 +120,66 @@ exports.respondToInvitation = async (req, res, next) => {
 
     invitation.status = status;
     invitation.respondedAt = new Date();
+    if (proposedPrice && !isNaN(Number(proposedPrice))) {
+      invitation.proposedPrice = Number(proposedPrice);
+    }
     await invitation.save();
+
+    // If accepted — auto-create an Application so the influencer appears in campaign applicants
+    if (status === 'accepted') {
+      const Application = require('../models/Application');
+      const existing = await Application.findOne({
+        campaign: invitation.campaign,
+        influencer: invitation.influencer,
+      });
+      if (!existing) {
+        await Application.create({
+          campaign: invitation.campaign,
+          influencer: invitation.influencer,
+          pitch: 'Accepted via campaign invitation',
+          status: 'accepted',
+          respondedAt: new Date(),
+          ...(invitation.proposedPrice ? { proposedPrice: invitation.proposedPrice } : {}),
+        });
+      }
+    }
+
+    // Notify brand about the response
+    const populatedInvitation = await Invitation.findById(invitation._id)
+      .populate('campaign', 'title')
+      .lean();
+
+    const campaignTitle = populatedInvitation?.campaign?.title || 'your campaign';
+    const influencerName = req.user.name;
+
+    createNotification(invitation.brand.toString(), {
+      type: 'invitation',
+      title: status === 'accepted' ? '✅ Invitation Accepted' : '❌ Invitation Declined',
+      body: status === 'accepted'
+        ? `${influencerName} accepted your invitation to "${campaignTitle}"`
+        : `${influencerName} declined your invitation to "${campaignTitle}"`,
+      data: {
+        screen: 'Invitations',
+        referenceId: invitation._id.toString(),
+        referenceType: 'invitation',
+        extra: {
+          campaignTitle,
+          influencerName,
+          status,
+        },
+      },
+    }).catch(err => console.error('[Invitation Response] Notification failed:', err.message));
+
+    // Real-time socket
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`user:${invitation.brand.toString()}`).emit('invitationResponse', {
+        invitationId: invitation._id,
+        status,
+        influencerName,
+        campaignTitle,
+      });
+    }
 
     return success(res, { invitation }, `Invitation ${status}`);
   } catch (error) {

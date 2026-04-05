@@ -41,21 +41,21 @@ const sendPushNotification = async (token, { title, body, data = {} }) => {
   if (!admin.apps.length || !token) return;
 
   const message = {
-    notification: { title, body },
-    data,
+    // No 'notification' key — data-only message so the OS never shows a foreground popup.
+    // The app handles delivery silently via socket + in-app notification inbox.
+    data: {
+      ...Object.fromEntries(
+        Object.entries({ title, body, ...data }).map(([k, v]) => [k, String(v)])
+      ),
+    },
     token,
     android: {
       priority: 'high',
-      notification: {
-        sound: 'default',
-        channelId: 'default_channel',
-      },
     },
     apns: {
       payload: {
         aps: {
-          sound: 'default',
-          badge: 1,
+          contentAvailable: true,
         },
       },
     },
@@ -82,21 +82,20 @@ const sendMulticastPush = async (tokens, { title, body, data = {} }) => {
   if (!admin.apps.length || !tokens?.length) return;
 
   const message = {
-    notification: { title, body },
-    data,
-    tokens: tokens.filter(t => t), // Remove any null/undefined tokens
+    // Data-only — no foreground popup shown by the OS.
+    data: {
+      ...Object.fromEntries(
+        Object.entries({ title, body, ...data }).map(([k, v]) => [k, String(v)])
+      ),
+    },
+    tokens: tokens.filter(t => t),
     android: {
       priority: 'high',
-      notification: {
-        sound: 'default',
-        channelId: 'default_channel',
-      },
     },
     apns: {
       payload: {
         aps: {
-          sound: 'default',
-          badge: 1,
+          contentAvailable: true,
         },
       },
     },
