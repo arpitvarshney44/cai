@@ -27,13 +27,9 @@ const influencerProfileSchema = new mongoose.Schema(
       unique: true,
     },
     bio: { type: String, trim: true, maxlength: 500 },
-    niche: [{
-      type: String,
-      enum: [
-        'fashion', 'beauty', 'fitness', 'food', 'travel', 'tech',
-        'gaming', 'lifestyle', 'education', 'finance', 'health',
-        'parenting', 'music', 'art', 'sports', 'entertainment', 'other',
-      ],
+    niche: [{ 
+      type: String, 
+      trim: true 
     }],
     location: {
       country: { type: String, trim: true },
@@ -48,6 +44,7 @@ const influencerProfileSchema = new mongoose.Schema(
     portfolio: [portfolioItemSchema],
     totalFollowers: { type: Number, default: 0 },
     avgEngagementRate: { type: Number, default: 0 },
+    avgReach: { type: Number, default: 0 }, // average views/impressions per post
     aiScore: { type: Number, default: 0, min: 0, max: 100 },
     pricePerPost: { type: Number, default: 0 },
     pricePerStory: { type: Number, default: 0 },
@@ -57,6 +54,7 @@ const influencerProfileSchema = new mongoose.Schema(
     completionPercentage: { type: Number, default: 0 },
     totalCampaigns: { type: Number, default: 0 },
     totalEarnings: { type: Number, default: 0 },
+    savedCampaigns: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Campaign' }],
   },
   { timestamps: true }
 );
@@ -80,7 +78,9 @@ influencerProfileSchema.pre('save', function (next) {
 
 // Recalculate total followers & avg engagement from social accounts
 influencerProfileSchema.methods.recalculateStats = function () {
-  if (!this.socialAccounts?.length) return;
+  const hasPlatformData = this.socialAccounts?.some(a => (a.followers || 0) > 0 || (a.engagementRate || 0) > 0);
+  if (!hasPlatformData) return;
+  
   this.totalFollowers = this.socialAccounts.reduce((sum, a) => sum + (a.followers || 0), 0);
   const rates = this.socialAccounts.filter(a => a.engagementRate > 0);
   this.avgEngagementRate = rates.length

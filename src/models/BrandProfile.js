@@ -9,13 +9,9 @@ const brandProfileSchema = new mongoose.Schema(
       unique: true,
     },
     companyName: { type: String, trim: true, maxlength: 100 },
-    industry: {
-      type: String,
-      enum: [
-        'fashion', 'beauty', 'food_beverage', 'tech', 'health_wellness',
-        'travel', 'finance', 'education', 'entertainment', 'sports',
-        'home_decor', 'automotive', 'retail', 'ecommerce', 'other',
-      ],
+    industry: { 
+      type: String, 
+      trim: true 
     },
     website: { type: String, trim: true },
     description: { type: String, trim: true, maxlength: 1000 },

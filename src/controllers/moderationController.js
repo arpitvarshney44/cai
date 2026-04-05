@@ -5,6 +5,7 @@ const Message = require('../models/Message');
 const AuditLog = require('../models/AuditLog');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
+const { createNotification } = require('../utils/notificationUtil');
 
 // ─── Helper: Log audit ────────────────────────────────
 const logAudit = async (admin, action, targetType, targetId, description, req, extra = {}) => {
@@ -266,10 +267,8 @@ exports.warnUser = async (req, res, next) => {
     const user = await User.findById(req.params.userId);
     if (!user) return next(new AppError('User not found', 404));
 
-    // Create a notification for the user
-    const Notification = require('../models/Notification');
-    await Notification.create({
-      user: user._id,
+    // Create a notification for the user (handles push + DB)
+    await createNotification(user._id, {
       type: 'system',
       title: 'Account Warning',
       body: message || `Your account has received a warning for: ${reason}`,

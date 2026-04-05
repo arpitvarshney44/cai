@@ -7,6 +7,8 @@ const AuditLog = require('../models/AuditLog');
 const { generateAccessToken, generateRefreshToken } = require('../utils/generateToken');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
+const { sendMulticastPush } = require('../utils/firebase');
+const { createNotification } = require('../utils/notificationUtil');
 
 // Helper: create audit log
 const createAuditLog = async (adminId, action, targetType, targetId, description, severity = 'info', extra = {}) => {
@@ -590,28 +592,132 @@ exports.getCampaignById = async (req, res, next) => {
 // @route   PUT /api/v1/admin/campaigns/:id/moderate
 exports.moderateCampaign = async (req, res, next) => {
   try {
-    const { status, note } = req.body;
+    const { action, status: fallbackStatus, note, reason } = req.body;
+    const effectiveAction = action || fallbackStatus;
+    const effectiveNote = note || reason || 'No note provided';
+    
+    console.log(`[Moderation] Incoming action: ${effectiveAction} for campaign: ${req.params.id}`);
+    console.log('[Moderation] Payload:', JSON.stringify(req.body));
 
     const campaign = await Campaign.findById(req.params.id);
-    if (!campaign) return next(new AppError('Campaign not found', 404));
+    if (!campaign) {
+      console.warn(`[Moderation] Campaign not found: ${req.params.id}`);
+      return next(new AppError('Campaign not found', 404));
+    }
 
-    campaign.status = status;
-    if (status === 'active') campaign.isApproved = true;
+    const previousStatus = campaign.status;
+
+    switch (effectiveAction) {
+      case 'approve':
+        campaign.status = 'active';
+        campaign.isAdminApproved = true;
+        break;
+      case 'reject':
+        campaign.status = 'rejected';
+        campaign.isAdminApproved = false;
+        break;
+      case 'flag':
+        campaign.isFlagged = true;
+        break;
+      case 'unflag':
+        campaign.isFlagged = false;
+        break;
+      case 'pause':
+        campaign.status = 'paused';
+        break;
+      case 'unpause':
+      case 'resume':
+        campaign.status = 'active';
+        break;
+      case 'remove':
+      case 'delete':
+        await campaign.deleteOne();
+        await createAuditLog(req.user._id, 'campaign_deleted', 'campaign', req.params.id, 
+          `Deleted campaign: ${campaign.title}. Reason: ${effectiveNote}`, 'critical');
+        return success(res, null, 'Campaign deleted successfully');
+      default:
+        console.warn(`[Moderation] Unhandled action: ${effectiveAction}`);
+        return next(new AppError(`Unhandled moderation action: ${effectiveAction}`, 400));
+    }
+
     campaign.moderatedBy = req.user._id;
     campaign.moderatedAt = new Date();
-    campaign.moderationNote = note;
+    campaign.moderationNote = effectiveNote;
     await campaign.save();
+
+    console.log(`[Moderation] Campaign updated. Status: ${previousStatus} -> ${campaign.status}, Approved: ${campaign.isAdminApproved}`);
 
     await createAuditLog(
       req.user._id,
-      status === 'active' ? 'campaign_approved' : 'campaign_rejected',
+      effectiveAction.includes('approve') ? 'campaign_approved' : 'campaign_moderated',
       'campaign',
       campaign._id,
-      `${status === 'active' ? 'Approved' : 'Rejected'} campaign: ${campaign.title}. Note: ${note || 'N/A'}`,
-      status === 'active' ? 'info' : 'warning'
+      `Moderated campaign: ${campaign.title}. Action: ${effectiveAction}. Note: ${effectiveNote}`,
+      effectiveAction === 'reject' || effectiveAction === 'flag' ? 'warning' : 'info'
     );
 
-    return success(res, campaign, `Campaign ${status} successfully`);
+    // Notify the Brand
+    if (['approve', 'reject', 'flag'].includes(effectiveAction)) {
+      const isApproved = effectiveAction === 'approve';
+      await createNotification(campaign.brand, {
+        type: isApproved ? 'campaign_status' : 'system',
+        title: isApproved ? 'Campaign Approved!' : 'Campaign Update',
+        body: isApproved 
+          ? `Your campaign "${campaign.title}" has been approved and is now live.`
+          : `There is an update on your campaign "${campaign.title}": ${effectiveAction}. Note: ${effectiveNote}`,
+        data: { screen: 'MyCampaigns', referenceId: campaign._id.toString(), referenceType: 'campaign' },
+      });
+    }
+
+    return success(res, campaign, `Campaign ${effectiveAction} successfully`);
+  } catch (error) {
+    console.error('[Moderation] Error:', error);
+    next(error);
+  }
+};
+
+// @desc    Admin create campaign on behalf of a brand
+// @route   POST /api/v1/admin/campaigns
+exports.adminCreateCampaign = async (req, res, next) => {
+  try {
+    const {
+      brandId, brandName, title, description, niche, platform, budget,
+      deliverables, timeline, requirements, status, tags, maxApplications,
+    } = req.body;
+
+    if (!title) return next(new AppError('title is required', 400));
+    if (!brandId && !brandName) return next(new AppError('Either brandId or brandName is required', 400));
+
+    let brandRef = null;
+    let displayName = brandName || '';
+
+    if (brandId) {
+      const brand = await User.findById(brandId);
+      if (!brand || brand.role !== 'brand') return next(new AppError('Brand user not found', 404));
+      brandRef = brandId;
+      displayName = brand.name;
+    }
+
+    const campaign = await Campaign.create({
+      brand: brandRef,
+      brandName: brandName || null,
+      title,
+      description: description || '',
+      niche: niche || [],
+      platform: platform || [],
+      budget: budget || {},
+      deliverables: deliverables || [],
+      timeline: timeline || {},
+      requirements: requirements || {},
+      status: status || 'active',
+      tags: tags || [],
+      maxApplications: maxApplications || 0,
+    });
+
+    await createAuditLog(req.user._id, 'campaign_approved', 'campaign', campaign._id,
+      `Admin created campaign "${title}" for ${brandRef ? 'brand ' + displayName : 'manual brand: ' + brandName}`, 'info');
+
+    return success(res, { campaign }, 'Campaign created by admin', 201);
   } catch (error) {
     next(error);
   }
@@ -1047,21 +1153,39 @@ exports.sendAnnouncement = async (req, res, next) => {
     if (targetRole) userFilter.role = targetRole;
     if (targetUserIds?.length) userFilter = { _id: { $in: targetUserIds } };
 
-    const users = await User.find(userFilter).select('_id').lean();
+    const users = await User.find(userFilter).select('_id fcmToken').lean();
+    if (!users.length) return success(res, { sent: 0 }, 'No users to notify');
+
+    // 1. Save in DB for all matching users (so they see it in their inbox)
     const notifications = users.map(u => ({
       user: u._id, type: 'system', title, body,
       data: { screen: 'Notifications', referenceType: 'announcement' },
     }));
+    await Notification.insertMany(notifications);
 
-    if (notifications.length > 0) await Notification.insertMany(notifications);
+    // 2. Send Push Notification to those who have tokens
+    const fcmTokens = users.map(u => u.fcmToken).filter(token => !!token);
+    
+    if (fcmTokens.length > 0) {
+      // Chunking if more than 500 (Firebase limit)
+      const chunkSize = 500;
+      for (let i = 0; i < fcmTokens.length; i += chunkSize) {
+        const chunk = fcmTokens.slice(i, i + chunkSize);
+        await sendMulticastPush(chunk, {
+          title,
+          body,
+          data: { screen: 'Notifications', referenceType: 'announcement' }
+        });
+      }
+    }
 
     await AuditLog.create({
       admin: req.user._id, action: 'bulk_action', targetType: 'system',
-      description: `Sent announcement "${title}" to ${notifications.length} users`,
+      description: `Sent announcement "${title}" to ${notifications.length} users (${fcmTokens.length} via push)`,
       severity: 'info',
     });
 
-    return success(res, { sent: notifications.length }, 'Announcement sent');
+    return success(res, { sent: notifications.length, pushSent: fcmTokens.length }, 'Announcement sent');
   } catch (err) { next(err); }
 };
 

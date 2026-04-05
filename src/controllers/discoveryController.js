@@ -27,10 +27,20 @@ exports.discoverInfluencers = async (req, res, next) => {
 
     const filter = {};
 
-    // Text search on bio
+    // Text search on bio or user name
     if (search) {
+      const User = require('../models/User');
+      const matchingUsers = await User.find({
+        name: { $regex: search, $options: 'i' },
+        role: 'influencer'
+      }).select('_id');
+      
+      const userIds = matchingUsers.map(u => u._id);
+
       filter.$or = [
         { bio: { $regex: search, $options: 'i' } },
+        { user: { $in: userIds } },
+        { niche: { $regex: search, $options: 'i' } }
       ];
     }
 

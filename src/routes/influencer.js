@@ -12,6 +12,8 @@ router.post('/profile/upload-image', upload.single('image'), ctrl.uploadProfileI
 router.post('/profile/portfolio', upload.single('thumbnail'), ctrl.addPortfolioItem);
 router.delete('/profile/portfolio/:itemId', ctrl.removePortfolioItem);
 router.put('/profile/social', ctrl.updateSocialAccounts);
+router.post('/profile/saved-campaigns/:campaignId', ctrl.toggleSaveCampaign);
+router.get('/profile/saved-campaigns', ctrl.getSavedCampaigns);
 
 // Public route (no auth needed) — must be after the protected block
 module.exports = router;

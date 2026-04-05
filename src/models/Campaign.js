@@ -22,7 +22,13 @@ const campaignSchema = new mongoose.Schema(
     brand: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      default: null,
+    },
+    // Manual brand name (when admin creates campaign without a registered brand)
+    brandName: {
+      type: String,
+      default: null,
+      trim: true,
     },
     title: {
       type: String,
@@ -71,7 +77,7 @@ const campaignSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ['draft', 'pending', 'active', 'paused', 'in_progress', 'completed', 'cancelled'],
+      enum: ['draft', 'pending', 'active', 'paused', 'in_progress', 'completed', 'cancelled', 'rejected'],
       default: 'draft',
     },
     coverImage: { type: String, default: null },

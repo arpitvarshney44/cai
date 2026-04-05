@@ -182,7 +182,7 @@ exports.analyzeContentBatch = async (req, res, next) => {
 // @route   POST /api/v1/ai/pricing/recommend
 exports.getPricingRecommendation = async (req, res, next) => {
   try {
-    const { profileId } = req.body;
+    const { profileId, metrics } = req.body;
 
     if (profileId) {
       // Brand viewing an influencer — pass profileId directly to AI engine
@@ -190,12 +190,24 @@ exports.getPricingRecommendation = async (req, res, next) => {
       return success(res, result.data, 'Pricing recommendation generated');
     }
 
-    // Influencer viewing their own pricing — resolve their profile
+    // Influencer logic — check if they provided temporary metrics during setup
+    if (metrics) {
+      const result = await callAI('/api/ai/pricing/recommend', 'POST', { 
+        userId: req.user._id.toString(),
+        metrics 
+      });
+      return success(res, result.data, 'Pricing recommendation generated from metrics');
+    }
+
+    // Default: Influencer viewing their own pricing — resolve their profile
     const InfluencerProfile = require('../models/InfluencerProfile');
     const profile = await InfluencerProfile.findOne({ user: req.user._id }).select('_id').lean();
-    if (!profile) return next(new AppError('Influencer profile not found', 404));
-
-    const result = await callAI('/api/ai/pricing/recommend', 'POST', { profileId: profile._id.toString() });
+    
+    // If no profile yet, pass userId to allow engine to provide generic defaults based on basic info
+    const result = await callAI('/api/ai/pricing/recommend', 'POST', { 
+      profileId: profile ? profile._id.toString() : undefined,
+      userId: profile ? undefined : req.user._id.toString()
+    });
     success(res, result.data, 'Pricing recommendation generated');
   } catch (err) {
     next(err);

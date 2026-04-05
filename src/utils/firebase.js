@@ -7,17 +7,25 @@ const admin = require('firebase-admin');
 
 if (!admin.apps.length) {
   try {
-    const serviceAccount = process.env.FCM_SERVICE_ACCOUNT 
-      ? JSON.parse(process.env.FCM_SERVICE_ACCOUNT) 
-      : null;
+    let serviceAccount = null;
+    try {
+      if (process.env.FCM_SERVICE_ACCOUNT) {
+        // Handle single quote wraps often used for multi-line .env vars
+        const raw = process.env.FCM_SERVICE_ACCOUNT.trim().replace(/^'|'$/g, '');
+        serviceAccount = JSON.parse(raw);
+      }
+    } catch (parseError) {
+      console.error('CRITICAL: Failed to parse FCM_SERVICE_ACCOUNT from .env. Ensure it is a valid JSON string.');
+      console.error('Parse error:', parseError.message);
+    }
 
     if (serviceAccount) {
       admin.initializeApp({
         credential: admin.credential.cert(serviceAccount),
       });
-      console.log('Firebase Admin initialized successfully');
+      console.log('Firebase Admin initialized successfully (Project:', serviceAccount.project_id, ')');
     } else {
-      console.warn('Firebase Admin NOT initialized: FCM_SERVICE_ACCOUNT not found in environment');
+      console.warn('Firebase Admin NOT initialized: FCM_SERVICE_ACCOUNT missing or invalid in environment');
     }
   } catch (error) {
     console.error('Firebase Admin initialization error:', error.message);
@@ -55,13 +63,52 @@ const sendPushNotification = async (token, { title, body, data = {} }) => {
 
   try {
     const response = await admin.messaging().send(message);
-    console.log('Push notification sent successfully:', response);
     return response;
   } catch (error) {
-    console.error('Error sending push notification:', error.message);
-    // If token is invalid/not registered, you might want to remove it from user model
+    console.error('[Push Error] Single push failed:', error.message);
+    if (error.code === 'messaging/registration-token-not-registered') {
+      console.warn(`[Push] Token ${token.substring(0, 10)}... is no longer valid.`);
+    }
     return null;
   }
 };
 
-module.exports = { admin, sendPushNotification };
+/**
+ * Sends a push notification to multiple FCM tokens
+ * @param {string[]} tokens 
+ * @param {object} payload { title, body, data }
+ */
+const sendMulticastPush = async (tokens, { title, body, data = {} }) => {
+  if (!admin.apps.length || !tokens?.length) return;
+
+  const message = {
+    notification: { title, body },
+    data,
+    tokens: tokens.filter(t => t), // Remove any null/undefined tokens
+    android: {
+      priority: 'high',
+      notification: {
+        sound: 'default',
+        channelId: 'default_channel',
+      },
+    },
+    apns: {
+      payload: {
+        aps: {
+          sound: 'default',
+          badge: 1,
+        },
+      },
+    },
+  };
+
+  try {
+    const response = await admin.messaging().sendEachForMulticast(message);
+    return response;
+  } catch (error) {
+    console.error('[Multicast Error] Bulk push failed:', error.message);
+    return null;
+  }
+};
+
+module.exports = { admin, sendPushNotification, sendMulticastPush };

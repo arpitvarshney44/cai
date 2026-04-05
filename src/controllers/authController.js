@@ -94,6 +94,7 @@ exports.login = async (req, res, next) => {
         email: user.email,
         role: user.role,
         isVerified: user.isVerified,
+        isEmailVerified: user.isEmailVerified || false,
         isProfileComplete: user.isProfileComplete,
         avatar: user.avatar,
       },
@@ -128,11 +129,11 @@ exports.verifyEmail = async (req, res, next) => {
       return next(new AppError('Invalid OTP', 400));
     }
 
-    user.isVerified = true;
+    user.isEmailVerified = true;
     user.otp = undefined;
     await user.save();
 
-    return success(res, null, 'Email verified successfully');
+    return success(res, { isEmailVerified: true, isVerified: user.isVerified }, 'Email verified. Your account is pending admin approval.');
   } catch (error) {
     next(error);
   }
@@ -292,6 +293,7 @@ exports.getMe = async (req, res, next) => {
         role: user.role,
         avatar: user.avatar,
         isVerified: user.isVerified,
+        isEmailVerified: user.isEmailVerified || false,
         isProfileComplete: user.isProfileComplete,
         createdAt: user.createdAt,
       },

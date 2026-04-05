@@ -44,6 +44,7 @@ router.post('/create-admin', requirePermission('admins_manage'), validate(create
 router.get('/campaigns/stats', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getCampaignStats);
 router.get('/campaigns', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getAllCampaigns);
 router.get('/campaigns/:id', requirePermission('campaigns_manage', 'campaigns_moderate'), adminController.getCampaignById);
+router.post('/campaigns', requirePermission('campaigns_manage'), adminController.adminCreateCampaign);
 router.put('/campaigns/:id/moderate', requirePermission('campaigns_moderate'), adminController.moderateCampaign);
 router.put('/campaigns/:id/edit', requirePermission('campaigns_manage'), adminController.editCampaignAdmin);
 

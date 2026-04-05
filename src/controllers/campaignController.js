@@ -110,12 +110,24 @@ exports.deleteCampaign = async (req, res, next) => {
 // @access  Authenticated
 exports.getCampaign = async (req, res, next) => {
   try {
-    const campaign = await Campaign.findById(req.params.id)
-      .populate('brand', 'name email avatar');
+    const Campaign = require('../models/Campaign');
+    const BrandProfile = require('../models/BrandProfile');
+
+    let campaign = await Campaign.findById(req.params.id)
+      .populate('brand', 'name email avatar')
+      .lean();
 
     if (!campaign) {
       return next(new AppError('Campaign not found', 404));
     }
+
+    // Resolve brand identity
+    const bp = await BrandProfile.findOne({ user: campaign.brand?._id || campaign.brand })
+      .select('logo companyName')
+      .lean();
+
+    campaign.brandName = bp?.companyName || campaign.brand?.name || campaign.brandName || 'Brand';
+    campaign.brandLogo = bp?.logo || campaign.brand?.avatar;
 
     return success(res, { campaign });
   } catch (error) {
@@ -129,6 +141,7 @@ exports.getCampaign = async (req, res, next) => {
 // @query   page, limit, niche, platform, minBudget, maxBudget, status, search, sort, location
 exports.listCampaigns = async (req, res, next) => {
   try {
+    const BrandProfile = require('../models/BrandProfile');
     const {
       page = 1,
       limit = 10,
@@ -187,19 +200,45 @@ exports.listCampaigns = async (req, res, next) => {
 
     // Text search
     if (search) {
-      filter.$text = { $search: search };
+      const User = require('../models/User');
+      const matchingBrands = await User.find({
+        name: { $regex: search, $options: 'i' },
+        role: 'brand'
+      }).select('_id');
+      const brandIds = matchingBrands.map(b => b._id);
+
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } },
+        { brandName: { $regex: search, $options: 'i' } },
+        { brand: { $in: brandIds } }
+      ];
     }
 
     const skip = (Number(page) - 1) * Number(limit);
 
-    const [campaigns, total] = await Promise.all([
+    let [campaigns, total] = await Promise.all([
       Campaign.find(filter)
         .populate('brand', 'name email avatar')
         .sort(sort)
         .skip(skip)
-        .limit(Number(limit)),
+        .limit(Number(limit))
+        .lean(),
       Campaign.countDocuments(filter),
     ]);
+
+    // Resolve brand identities for list
+    campaigns = await Promise.all(campaigns.map(async (c) => {
+      const bp = await BrandProfile.findOne({ user: c.brand?._id || c.brand })
+        .select('logo companyName')
+        .lean();
+      return {
+        ...c,
+        brandName: bp?.companyName || c.brand?.name || c.brandName || 'Brand',
+        brandLogo: bp?.logo || c.brand?.avatar
+      };
+    }));
 
     return success(res, {
       campaigns,

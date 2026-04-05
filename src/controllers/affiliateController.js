@@ -205,3 +205,49 @@ exports.validateDiscountCode = async (req, res, next) => {
     next(error);
   }
 };
+
+
+// @desc    Revoke (deactivate) a discount code
+// @route   PUT /api/v1/affiliates/discounts/:id/revoke
+exports.revokeDiscountCode = async (req, res, next) => {
+  try {
+    const discount = await DiscountCode.findOne({ _id: req.params.id, brand: req.user._id });
+    if (!discount) return next(new AppError('Discount code not found', 404));
+
+    discount.isActive = !discount.isActive;
+    await discount.save();
+
+    return success(res, { discount }, `Discount code ${discount.isActive ? 'activated' : 'revoked'}`);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// @desc    Get discount codes assigned to influencer
+// @route   GET /api/v1/affiliates/my-codes
+exports.getMyAssignedCodes = async (req, res, next) => {
+  try {
+    const codes = await DiscountCode.find({ influencer: req.user._id, isActive: true })
+      .populate('campaign', 'title')
+      .populate('brand', 'name')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return success(res, { codes });
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+// @desc    Delete a discount code
+// @route   DELETE /api/v1/affiliates/discounts/:id
+exports.deleteDiscountCode = async (req, res, next) => {
+  try {
+    const discount = await DiscountCode.findOneAndDelete({ _id: req.params.id, brand: req.user._id });
+    if (!discount) return next(new AppError('Discount code not found', 404));
+    return success(res, null, 'Discount code deleted');
+  } catch (error) {
+    next(error);
+  }
+};

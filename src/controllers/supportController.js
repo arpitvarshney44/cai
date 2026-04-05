@@ -2,6 +2,7 @@ const SupportTicket = require('../models/SupportTicket');
 const AuditLog = require('../models/AuditLog');
 const { AppError } = require('../middleware/errorHandler');
 const { success } = require('../utils/apiResponse');
+const { createNotification } = require('../utils/notificationUtil');
 
 // ─── USER-FACING ──────────────────────────────────────
 
@@ -107,6 +108,17 @@ exports.respondToTicket = async (req, res, next) => {
     }
 
     await ticket.save();
+
+    // Notify user if admin responded
+    if (senderRole === 'admin') {
+      await createNotification(ticket.user, {
+        type: 'support',
+        title: 'New Support Response',
+        body: `An administrator has responded to your ticket: ${ticket.subject}`,
+        data: { screen: 'SupportDetail', referenceId: ticket._id.toString(), referenceType: 'ticket' },
+      });
+    }
+
     return success(res, { ticket }, 'Response added');
   } catch (err) {
     next(err);
@@ -177,10 +189,10 @@ exports.updateTicketStatus = async (req, res, next) => {
 
     await AuditLog.create({
       admin: req.user._id,
-      action: 'ticket_status_updated',
+      action: 'ticket_resolved',
       targetType: 'ticket',
       targetId: ticket._id,
-      description: `Ticket ${ticket.ticketNumber} status changed to ${status}`,
+      description: `Ticket status changed to ${status}`,
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
     });
@@ -230,6 +242,14 @@ exports.resolveTicket = async (req, res, next) => {
     ticket.resolvedAt = new Date();
     ticket.resolvedBy = req.user._id;
     await ticket.save();
+
+    // Notify user
+    await createNotification(ticket.user, {
+      type: 'support',
+      title: 'Support Ticket Resolved',
+      body: `Your ticket "${ticket.subject}" has been marked as resolved.`,
+      data: { screen: 'SupportDetail', referenceId: ticket._id.toString(), referenceType: 'ticket' },
+    });
 
     await AuditLog.create({
       admin: req.user._id,

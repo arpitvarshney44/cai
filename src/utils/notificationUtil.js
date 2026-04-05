@@ -23,7 +23,10 @@ const createNotification = async (userId, { type, title, body, data = {} }) => {
     // 2. Get the user for token/email
     const user = await User.findById(userId).select('fcmToken email name');
 
-    if (!user) return notification;
+    if (!user) {
+      console.warn(`[Notification] User ${userId} not found for notification.`);
+      return notification;
+    }
 
     // 3. Send Push Notification
     if (user.fcmToken) {
