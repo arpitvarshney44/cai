@@ -50,6 +50,10 @@ const errorHandler = (err, req, res, _next) => {
     message = 'Token expired';
   }
 
+  console.error(`[ERROR HANDLER] ${statusCode} ${req.method} ${req.originalUrl} — ${message}`);
+  if (err.name === 'ValidationError') console.error('[MONGOOSE ERRORS]', JSON.stringify(err.errors, null, 2));
+  if (statusCode === 400) console.error('[REQUEST BODY]', JSON.stringify(req.body, null, 2));
+
   res.status(statusCode).json({
     success: false,
     message,
