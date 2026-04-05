@@ -7,6 +7,11 @@ const { success } = require('../utils/apiResponse');
 // @access  Brand only
 exports.createCampaign = async (req, res, next) => {
   try {
+    // ── DEBUG LOG ──────────────────────────────────────────────
+    console.log('[CREATE CAMPAIGN] user:', req.user?._id, 'role:', req.user?.role);
+    console.log('[CREATE CAMPAIGN] body:', JSON.stringify(req.body, null, 2));
+    // ──────────────────────────────────────────────────────────
+
     const {
       title, description, niche, platform, budget,
       deliverables, milestones, timeline, requirements,

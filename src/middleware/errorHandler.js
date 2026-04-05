@@ -50,6 +50,21 @@ const errorHandler = (err, req, res, _next) => {
     message = 'Token expired';
   }
 
+  // ── DEBUG LOG ──────────────────────────────────────────────
+  if (statusCode >= 400) {
+    console.error(`[ERROR ${statusCode}]`, req.method, req.originalUrl);
+    console.error('[ERROR MESSAGE]', message);
+    console.error('[REQUEST BODY]', JSON.stringify(req.body, null, 2));
+    console.error('[ERROR NAME]', err.name);
+    if (err.name === 'ValidationError') {
+      console.error('[MONGOOSE VALIDATION]', JSON.stringify(err.errors, null, 2));
+    }
+    if (err.stack) {
+      console.error('[STACK]', err.stack);
+    }
+  }
+  // ──────────────────────────────────────────────────────────
+
   res.status(statusCode).json({
     success: false,
     message,
